@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">LocaLL</string>
+    <string name="accessibility_service_label">LocaLL Voice Control</string>
+    <string name="accessibility_service_description">Lets LocaLL type your dictated text into apps and carry out voice commands (open apps, navigate). Runs entirely on-device; nothing leaves your phone.</string>
+</resources>
