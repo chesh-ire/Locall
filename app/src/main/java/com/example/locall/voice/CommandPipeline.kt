@@ -2,6 +2,7 @@ package com.example.locall.voice
 
 import android.content.Context
 import android.util.Log
+import com.example.locall.voice.battery.BatteryCommandHandler
 import com.example.locall.voice.email.EmailCommandHandler
 import com.example.locall.voice.memory.MemoryCommandHandler
 import com.example.locall.voice.memory.MemoryRepository
@@ -20,6 +21,7 @@ object CommandPipeline {
     @Volatile private var musicHandler: MusicCommandHandler? = null
     @Volatile private var memoryHandler: MemoryCommandHandler? = null
     @Volatile private var emailHandler: EmailCommandHandler? = null
+    @Volatile private var batteryHandler: BatteryCommandHandler? = null
 
     private fun music(context: Context): MusicCommandHandler =
         musicHandler ?: MusicCommandHandler(context.applicationContext).also { musicHandler = it }
@@ -29,6 +31,9 @@ object CommandPipeline {
 
     private fun email(context: Context): EmailCommandHandler =
         emailHandler ?: EmailCommandHandler(context.applicationContext).also { emailHandler = it }
+
+    private fun battery(context: Context): BatteryCommandHandler =
+        batteryHandler ?: BatteryCommandHandler(context.applicationContext).also { batteryHandler = it }
 
     @Volatile private var appContextForLlm: Context? = null
 
@@ -102,6 +107,10 @@ object CommandPipeline {
             val speak: (String) -> Unit = { text -> VoiceAccessibilityService.instance?.speak(text) }
             return email(appContext).handle(appContext, action.transcript, onStatus, confirm, speak)
         }
+        if (action is CommandAction.Battery) {
+            val speak: (String) -> Unit = { text -> VoiceAccessibilityService.instance?.speak(text) }
+            return battery(appContext).handle(appContext, action.transcript, onStatus, confirm, speak)
+        }
 
         val svc = VoiceAccessibilityService.instance
         if (svc == null) {
@@ -166,6 +175,7 @@ object CommandPipeline {
             is CommandAction.Memory -> error("handled above")
             is CommandAction.Torch -> error("handled above")
             is CommandAction.Email -> error("handled above")
+            is CommandAction.Battery -> error("handled above")
             is CommandAction.Volume -> error("handled above")
             is CommandAction.SetAlarm -> error("handled above")
             is CommandAction.SetTimer -> error("handled above")

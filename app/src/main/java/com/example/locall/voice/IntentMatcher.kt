@@ -1,5 +1,6 @@
 package com.example.locall.voice
 
+import com.example.locall.voice.battery.BatteryIntents
 import com.example.locall.voice.email.EmailIntents
 import com.example.locall.voice.memory.MemoryIntents
 import com.example.locall.voice.music.MusicIntents
@@ -31,6 +32,7 @@ class IntentMatcher(
         if (MusicIntents.matches(normalized)) return CommandAction.Music(original.trim())
         if (MemoryIntents.matches(normalized)) return CommandAction.Memory(original.trim())
         if (EmailIntents.matches(normalized)) return CommandAction.Email(original.trim())
+        if (BatteryIntents.matches(normalized)) return CommandAction.Battery(original.trim())
 
         ClockIntents.parse(normalized)?.let { return it }
 

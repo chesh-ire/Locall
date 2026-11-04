@@ -13,6 +13,13 @@
          no permission — they ride the accessibility service's global actions. -->
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
+    <!-- Battery advisor (feature 5): reads battery/device state and, after confirmation,
+         applies power-saving changes — brightness, adaptive brightness and screen timeout
+         are written through Settings.System, which needs the special "Modify system
+         settings" grant the user toggles in Settings (Settings.System.canWrite). -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+
     <!-- Email feature (feature 4) is the ONE part that talks to the network: the Gmail
          inbox lives on a remote server, so reading/clearing it requires INTERNET and
          Google OAuth. All AI processing (summaries, intent) still runs locally — only

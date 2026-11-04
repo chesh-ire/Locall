@@ -47,6 +47,17 @@ object LlmBridge {
         nativeGenerateWithGrammar(handle, systemPrompt, userPrompt, grammar, temperature, maxTokens, decodeThreads)
     }
 
+    suspend fun generateText(
+        systemPrompt: String,
+        userPrompt: String,
+        temperature: Float = 0.6f,
+        maxTokens: Int = 80,
+        decodeThreads: Int = 0,
+    ): String = withContext(InferenceDispatcher.dispatcher) {
+        check(handle != 0L) { "call load()/ensureLoaded() first" }
+        nativeGenerate(handle, systemPrompt, userPrompt, false, temperature, maxTokens, decodeThreads)
+    }
+
     suspend fun generateReply(instruction: String, decodeThreads: Int = 0, memoryContext: String = ""): String =
         withContext(InferenceDispatcher.dispatcher) {
             check(handle != 0L) { "call load() first" }
