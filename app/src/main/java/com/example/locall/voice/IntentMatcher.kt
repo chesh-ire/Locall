@@ -32,7 +32,10 @@ class IntentMatcher(
         if (MemoryIntents.matches(normalized)) return CommandAction.Memory(original.trim())
         if (EmailIntents.matches(normalized)) return CommandAction.Email(original.trim())
 
+        ClockIntents.parse(normalized)?.let { return it }
+
         torch(normalized)?.let { return it }
+        volume(normalized)?.let { return it }
 
         WHATSAPP_READ_PREFIXES.firstOrNull { normalized.startsWith(it) }?.let { prefix ->
             val contact = normalized.drop(prefix.length).trim()
@@ -73,6 +76,10 @@ class IntentMatcher(
                 return CommandAction.ClearField
             normalized in setOf("send", "send it", "send that", "send message", "send the message") ->
                 return CommandAction.SendMessage
+            normalized in SCREENSHOT ->
+                return CommandAction.Screenshot
+            normalized in LOCK_SCREEN ->
+                return CommandAction.LockScreen
         }
 
         return null
@@ -81,6 +88,12 @@ class IntentMatcher(
     fun torch(normalized: String): CommandAction.Torch? = when (normalized) {
         in TORCH_ON -> CommandAction.Torch(on = true)
         in TORCH_OFF -> CommandAction.Torch(on = false)
+        else -> null
+    }
+
+    fun volume(normalized: String): CommandAction.Volume? = when (normalized) {
+        in VOLUME_UP -> CommandAction.Volume(up = true)
+        in VOLUME_DOWN -> CommandAction.Volume(up = false)
         else -> null
     }
 
@@ -99,6 +112,24 @@ class IntentMatcher(
             "turn off flash", "turn off the flash",
             "turn off light", "turn off the light", "turn the light off",
             "flashlight off", "torch off", "light off",
+        )
+        val VOLUME_UP = setOf(
+            "volume up", "turn up the volume", "turn the volume up", "turn volume up",
+            "increase volume", "increase the volume", "raise volume", "raise the volume",
+            "turn it up", "volume higher", "louder", "make it louder",
+        )
+        val VOLUME_DOWN = setOf(
+            "volume down", "turn down the volume", "turn the volume down", "turn volume down",
+            "decrease volume", "decrease the volume", "lower volume", "lower the volume",
+            "turn it down", "volume lower", "quieter", "softer", "make it quieter",
+        )
+        val SCREENSHOT = setOf(
+            "take a screenshot", "take screenshot", "screenshot", "capture the screen",
+            "capture screen", "screen shot", "take a screen shot",
+        )
+        val LOCK_SCREEN = setOf(
+            "lock my phone", "lock the phone", "lock phone", "lock my screen",
+            "lock the screen", "lock screen", "lock the device", "lock my device",
         )
         val REPLY_PREFIXES = listOf(
             "reply that ", "reply saying ", "reply with ", "tell them ", "respond that ",

@@ -8,6 +8,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Alarm/timer voice commands fire standard AlarmClock intents at the system clock
+         app. This is a normal (auto-granted) permission; screenshot and lock-screen need
+         no permission — they ride the accessibility service's global actions. -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+
     <!-- Email feature (feature 4) is the ONE part that talks to the network: the Gmail
          inbox lives on a remote server, so reading/clearing it requires INTERNET and
          Google OAuth. All AI processing (summaries, intent) still runs locally — only

@@ -59,6 +59,8 @@ class VoiceAccessibilityService : AccessibilityService() {
                     val res = CommandPipeline.runText(
                         text,
                         appContext = applicationContext,
+                        // No command-time media pause on this debug path, so a live read is accurate.
+                        mediaWasPlaying = VolumeController.isMediaPlaying(applicationContext),
                         onStatus = { status -> Log.i(TAG, "DEBUG status: $status") },
                     )
                     Log.i(TAG, "DEBUG_RUN_TEXT result: transcript=\"${res.transcript}\" action=\"${res.action}\"")
@@ -95,8 +97,16 @@ class VoiceAccessibilityService : AccessibilityService() {
             error("Music is handled by the music module in CommandPipeline.dispatch()")
         is CommandAction.Memory ->
             error("Memory is handled by the memory module in CommandPipeline.dispatch()")
+        is CommandAction.Email ->
+            error("Email is handled by the email module in CommandPipeline.dispatch()")
         is CommandAction.Torch ->
             error("Torch is handled by TorchController in CommandPipeline.dispatch()")
+        is CommandAction.Volume ->
+            error("Volume is handled by VolumeController in CommandPipeline.dispatch()")
+        is CommandAction.SetAlarm, is CommandAction.SetTimer, is CommandAction.CancelAlarm ->
+            error("Clock actions are handled by ClockController in CommandPipeline.dispatch()")
+        is CommandAction.Screenshot -> takeScreenshot()
+        is CommandAction.LockScreen -> lockScreen()
         is CommandAction.Unrecognized -> {
             Log.w(TAG, "Unrecognized: ${action.transcript} (${action.reason})")
             false
@@ -169,6 +179,27 @@ class VoiceAccessibilityService : AccessibilityService() {
         return true
     }
 
+
+    /**
+     * Screenshot and lock-screen come free with the accessibility API — no MediaProjection
+     * consent dialog, no Device Admin — but only on recent Android. GLOBAL_ACTION_LOCK_SCREEN
+     * is API 28+, GLOBAL_ACTION_TAKE_SCREENSHOT is API 30+.
+     */
+    private fun takeScreenshot(): Boolean {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R) {
+            Log.w(TAG, "takeScreenshot needs Android 11+ (have ${android.os.Build.VERSION.SDK_INT})")
+            return false
+        }
+        return performGlobalAction(GLOBAL_ACTION_TAKE_SCREENSHOT)
+    }
+
+    private fun lockScreen(): Boolean {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.P) {
+            Log.w(TAG, "lockScreen needs Android 9+ (have ${android.os.Build.VERSION.SDK_INT})")
+            return false
+        }
+        return performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
+    }
 
     private fun navigate(nav: CommandAction.Nav): Boolean = when (nav) {
         CommandAction.Nav.HOME -> performGlobalAction(GLOBAL_ACTION_HOME)

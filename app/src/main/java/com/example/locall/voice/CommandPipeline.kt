@@ -37,6 +37,7 @@ object CommandPipeline {
     suspend fun runText(
         text: String,
         appContext: Context,
+        mediaWasPlaying: Boolean = false,
         onStatus: (String) -> Unit = {},
         confirm: suspend (String) -> Boolean = { false },
     ): Result {
@@ -50,7 +51,7 @@ object CommandPipeline {
 
         val action = withContext(InferenceDispatcher.dispatcher) { matcher.resolve(t, onStatus) }
         Log.i(TAG, "runText: resolved to $action")
-        val resultText = dispatch(action, appContext, onStatus, confirm)
+        val resultText = dispatch(action, appContext, mediaWasPlaying, onStatus, confirm)
         Log.i(TAG, "runText: dispatch result=\"$resultText\"")
         val keepPaused = action is CommandAction.Music &&
             MusicIntents.transport(action.transcript.lowercase()) == MusicIntent.Pause
@@ -60,9 +61,13 @@ object CommandPipeline {
     private suspend fun dispatch(
         action: CommandAction,
         appContext: Context,
+        mediaWasPlaying: Boolean,
         onStatus: (String) -> Unit,
         confirm: suspend (String) -> Boolean,
     ): String {
+        if (action is CommandAction.Volume) {
+            return handleVolume(appContext, action.up, mediaWasPlaying, confirm)
+        }
         if (action is CommandAction.Music) {
             val playViaSearch: suspend (String) -> Boolean = { q ->
                 VoiceAccessibilityService.instance?.playViaSpotifySearch(q) ?: false
@@ -77,6 +82,21 @@ object CommandPipeline {
             val ok = TorchController.set(appContext, action.on)
             return if (ok) { if (action.on) "🔦 flashlight on" else "🔦 flashlight off" }
                 else "⚠️ no flashlight available"
+        }
+        if (action is CommandAction.SetAlarm) {
+            val ok = ClockController.setAlarm(appContext, action.hour, action.minute)
+            val time = "%02d:%02d".format(action.hour, action.minute)
+            return if (ok) "⏰ alarm set for $time" else "⚠️ no clock app to set an alarm"
+        }
+        if (action is CommandAction.SetTimer) {
+            val ok = ClockController.setTimer(appContext, action.seconds)
+            return if (ok) "⏱️ timer set for ${formatDuration(action.seconds)}"
+                else "⚠️ no clock app to set a timer"
+        }
+        if (action is CommandAction.CancelAlarm) {
+            val ok = ClockController.showAlarms(appContext)
+            return if (ok) "⏰ opened your alarms — tap one to turn it off"
+                else "⚠️ no clock app to open"
         }
         if (action is CommandAction.Email) {
             val speak: (String) -> Unit = { text -> VoiceAccessibilityService.instance?.speak(text) }
@@ -138,14 +158,54 @@ object CommandPipeline {
             is CommandAction.Navigate -> if (ok) "✅ ${action.nav}" else "couldn't ${action.nav}"
             is CommandAction.ClearField -> if (ok) "🧹 cleared" else "no field to clear"
             is CommandAction.SendMessage -> if (ok) "📤 sent" else "couldn't find a send button"
+            is CommandAction.Screenshot -> if (ok) "📸 screenshot taken" else "⚠️ couldn't take a screenshot"
+            is CommandAction.LockScreen -> if (ok) "🔒 locked" else "⚠️ couldn't lock (needs Android 9+)"
             is CommandAction.ReadLastMessage -> error("handled above")
             is CommandAction.ComposeReply -> error("handled above")
             is CommandAction.Music -> error("handled above")
             is CommandAction.Memory -> error("handled above")
             is CommandAction.Torch -> error("handled above")
             is CommandAction.Email -> error("handled above")
+            is CommandAction.Volume -> error("handled above")
+            is CommandAction.SetAlarm -> error("handled above")
+            is CommandAction.SetTimer -> error("handled above")
+            is CommandAction.CancelAlarm -> error("handled above")
             is CommandAction.Unrecognized -> "🤷 didn't understand: \"${action.transcript}\""
         }
+    }
+
+    private fun formatDuration(seconds: Int): String {
+        val h = seconds / 3600
+        val m = (seconds % 3600) / 60
+        val s = seconds % 60
+        return buildList {
+            if (h > 0) add("${h}h")
+            if (m > 0) add("${m}m")
+            if (s > 0) add("${s}s")
+        }.joinToString(" ").ifEmpty { "0s" }
+    }
+
+    /**
+     * Volume is deliberately handled here, not in the Accessibility service: it needs no
+     * node traversal. When media was playing at command time we nudge the media stream
+     * (and the paused track resumes afterward at the new level). When nothing was playing
+     * we don't guess which volume the user meant — we ask before touching the ringer.
+     */
+    private suspend fun handleVolume(
+        appContext: Context,
+        up: Boolean,
+        mediaWasPlaying: Boolean,
+        confirm: suspend (String) -> Boolean,
+    ): String {
+        val dir = if (up) "up" else "down"
+        if (mediaWasPlaying) {
+            val ok = VolumeController.adjustMedia(appContext, up)
+            return if (ok) "🔊 media volume $dir" else "⚠️ couldn't change media volume"
+        }
+        if (!confirm("turn the ringer volume $dir")) return "❌ cancelled — nothing is playing"
+        val ok = VolumeController.adjustRing(appContext, up)
+        return if (ok) "🔊 ringer volume $dir"
+            else "⚠️ couldn't change ringer volume (needs Do-Not-Disturb access near silent)"
     }
 
     private fun describe(action: CommandAction): String = when (action) {
@@ -197,6 +257,12 @@ object CommandPipeline {
             "send_message" -> CommandAction.SendMessage
             "read_last_message" -> CommandAction.ReadLastMessage(
                 obj.getString("contact"), obj.optString("app", "whatsapp"))
+            "set_alarm" -> CommandAction.SetAlarm(
+                obj.getInt("hour").coerceIn(0, 23), obj.optInt("minute", 0).coerceIn(0, 59))
+            "set_timer" -> CommandAction.SetTimer(obj.getInt("seconds").coerceAtLeast(1))
+            "cancel_alarm" -> CommandAction.CancelAlarm
+            "screenshot" -> CommandAction.Screenshot
+            "lock_screen" -> CommandAction.LockScreen
             "unrecognized" -> CommandAction.Unrecognized(transcript, obj.optString("reason", ""))
             else -> CommandAction.Unrecognized(transcript, "unknown action kind from LLM")
         }
@@ -224,11 +290,19 @@ object CommandPipeline {
         {"action":"clear_field","_":null}
         {"action":"send_message","_":null}
         {"action":"read_last_message","contact":"<name>","app":"whatsapp"}
+        {"action":"set_alarm","hour":<0-23>,"minute":<0-59>}
+        {"action":"set_timer","seconds":<total seconds>}
+        {"action":"cancel_alarm","_":null}
+        {"action":"screenshot","_":null}
+        {"action":"lock_screen","_":null}
         {"action":"unrecognized","reason":"<why not>"}
 
         Examples:
         "remind me to buy milk" -> {"action":"type_text","text":"remind me to buy milk"}
         "launch the camera" -> {"action":"open_app","query":"camera"}
+        "wake me up at quarter past six" -> {"action":"set_alarm","hour":6,"minute":15}
+        "give me five minutes" -> {"action":"set_timer","seconds":300}
+        "grab a screenshot" -> {"action":"screenshot","_":null}
         "what's the weather like today" -> {"action":"unrecognized","reason":"no actionable command"}
 
         Output ONLY the JSON object, nothing else.

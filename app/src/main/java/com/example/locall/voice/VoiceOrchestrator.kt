@@ -58,6 +58,9 @@ class VoiceOrchestrator(
                 val res = CommandPipeline.runText(
                     text ?: "",
                     appContext = appContext,
+                    // `didPause` captures whether media was playing *before* we paused it to
+                    // listen — the honest "is media playing" signal for volume routing.
+                    mediaWasPlaying = didPause,
                     onStatus = { status -> _ui.value = _ui.value.copy(status = status) },
                     confirm = { description ->
                         VoiceAccessibilityService.instance?.let {

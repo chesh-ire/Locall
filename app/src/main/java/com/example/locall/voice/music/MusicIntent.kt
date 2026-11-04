@@ -13,5 +13,16 @@ sealed interface MusicIntent {
 
     data object PlayDifferent : MusicIntent
 
+    // --- personalized commands, backed by local listening history ---
+
+    /** "play my most played / my top songs / the songs I listen to the most" */
+    data object PlayMostPlayed : MusicIntent
+
+    /** "play what I was listening to / my recent songs / what I played recently" */
+    data object PlayRecent : MusicIntent
+
+    /** "play my favourite artist / something by my favourite artist" */
+    data object PlayFavouriteArtist : MusicIntent
+
     data class Unknown(val reason: String) : MusicIntent
 }

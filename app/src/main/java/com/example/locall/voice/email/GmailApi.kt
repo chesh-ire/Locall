@@ -28,7 +28,21 @@ object GmailApi {
         val snippet: String,
         val unread: Boolean,
         val internalDateMs: Long,
+        val labelIds: List<String> = emptyList(),
+        val historyId: Long = 0L,
     )
+
+    /** A single change from the incremental history feed (users.history.list). */
+    sealed interface HistoryEvent {
+        val id: String
+        data class Added(override val id: String, val labelIds: List<String>) : HistoryEvent
+        data class Deleted(override val id: String) : HistoryEvent
+        data class LabelsAdded(override val id: String, val labelIds: List<String>) : HistoryEvent
+        data class LabelsRemoved(override val id: String, val labelIds: List<String>) : HistoryEvent
+    }
+
+    /** Result of a history poll. [tooOld] means the start checkpoint expired → caller must full-resync. */
+    data class HistoryPage(val events: List<HistoryEvent>, val newHistoryId: Long, val tooOld: Boolean)
 
     suspend fun list(token: String, query: String, max: Int = MAX_IDS): List<String> =
         withContext(Dispatchers.IO) {
@@ -68,22 +82,91 @@ object GmailApi {
             }
             return ""
         }
-        val labels = o.optJSONArray("labelIds")
-        val unread = labels != null && (0 until labels.length()).any { labels.getString(it) == "UNREAD" }
+        val labelIds = labelList(o.optJSONArray("labelIds"))
         Message(
             id = id,
             from = header("From"),
             subject = header("Subject"),
             snippet = decodeEntities(o.optString("snippet")),
-            unread = unread,
+            unread = labelIds.contains("UNREAD"),
             internalDateMs = o.optString("internalDate").toLongOrNull() ?: 0L,
+            labelIds = labelIds,
+            historyId = o.optString("historyId").toLongOrNull() ?: 0L,
         )
     }
 
+    /** Current mailbox historyId — used to checkpoint a baseline for incremental sync. */
+    suspend fun profileHistoryId(token: String): Long = withContext(Dispatchers.IO) {
+        getJson(token, "$BASE/profile").optString("historyId").toLongOrNull() ?: 0L
+    }
+
+    /**
+     * Incremental sync: fetch all changes since [startHistoryId] via users.history.list.
+     * Returns [HistoryPage.tooOld] = true on 404 (checkpoint expired) so the caller can resync.
+     */
+    suspend fun history(token: String, startHistoryId: Long): HistoryPage = withContext(Dispatchers.IO) {
+        val events = ArrayList<HistoryEvent>()
+        var pageToken: String? = null
+        var newHistoryId = startHistoryId
+        do {
+            val url = buildString {
+                append("$BASE/history?startHistoryId=").append(startHistoryId)
+                append("&historyTypes=messageAdded&historyTypes=messageDeleted")
+                append("&historyTypes=labelAdded&historyTypes=labelRemoved")
+                pageToken?.let { append("&pageToken=").append(enc(it)) }
+            }
+            val (code, body) = request("GET", url, token, null)
+            if (code == 401) throw Unauthorized()
+            if (code == 404) return@withContext HistoryPage(emptyList(), startHistoryId, tooOld = true)
+            if (code !in 200..299) throw GmailException("GET $url -> $code: $body")
+            val obj = JSONObject(body)
+            obj.optString("historyId").toLongOrNull()?.let { newHistoryId = it }
+            obj.optJSONArray("history")?.let { hist ->
+                for (i in 0 until hist.length()) parseHistoryRecord(hist.getJSONObject(i), events)
+            }
+            pageToken = obj.optString("nextPageToken").ifEmpty { null }
+        } while (pageToken != null)
+        HistoryPage(events, newHistoryId, tooOld = false)
+    }
+
+    private fun parseHistoryRecord(rec: JSONObject, out: MutableList<HistoryEvent>) {
+        rec.optJSONArray("messagesAdded")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val m = arr.getJSONObject(i).optJSONObject("message") ?: continue
+                out.add(HistoryEvent.Added(m.getString("id"), labelList(m.optJSONArray("labelIds"))))
+            }
+        }
+        rec.optJSONArray("messagesDeleted")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val m = arr.getJSONObject(i).optJSONObject("message") ?: continue
+                out.add(HistoryEvent.Deleted(m.getString("id")))
+            }
+        }
+        rec.optJSONArray("labelsAdded")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val e = arr.getJSONObject(i)
+                val id = e.optJSONObject("message")?.optString("id")?.ifEmpty { null } ?: continue
+                out.add(HistoryEvent.LabelsAdded(id, labelList(e.optJSONArray("labelIds"))))
+            }
+        }
+        rec.optJSONArray("labelsRemoved")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val e = arr.getJSONObject(i)
+                val id = e.optJSONObject("message")?.optString("id")?.ifEmpty { null } ?: continue
+                out.add(HistoryEvent.LabelsRemoved(id, labelList(e.optJSONArray("labelIds"))))
+            }
+        }
+    }
+
+    private fun labelList(arr: JSONArray?): List<String> =
+        if (arr == null) emptyList() else (0 until arr.length()).map { arr.getString(it) }
+
     suspend fun plainText(token: String, id: String): String = withContext(Dispatchers.IO) {
         val o = getJson(token, "$BASE/messages/$id?format=full")
-        val payload = o.optJSONObject("payload") ?: return@withContext decodeEntities(o.optString("snippet"))
-        extractText(payload).ifBlank { decodeEntities(o.optString("snippet")) }.trim()
+        val payload = o.optJSONObject("payload")
+            ?: return@withContext cleanReplyHistory(decodeEntities(o.optString("snippet")))
+        val body = extractText(payload).ifBlank { decodeEntities(o.optString("snippet")) }
+        cleanReplyHistory(body).trim().ifBlank { decodeEntities(o.optString("snippet")).trim() }
     }
 
     suspend fun batchModify(
@@ -181,6 +264,33 @@ object GmailApi {
             .let { decodeEntities(it) }
             .replace(Regex("\\s+"), " ")
             .trim()
+
+    // Markers that begin quoted reply history — everything from the first match onward is dropped.
+    private val REPLY_MARKERS = listOf(
+        Regex("(?im)^\\s*On .+ wrote:\\s*$"),                       // Gmail/Apple: "On Tue, Jan 2, Jane <…> wrote:"
+        Regex("(?im)^\\s*-{3,}\\s*Original Message\\s*-{3,}\\s*$"), // Outlook
+        Regex("(?im)^\\s*_{5,}\\s*$"),                              // Outlook divider line
+        Regex("(?im)^\\s*From:.+\\n\\s*Sent:.+"),                   // Outlook header block
+        Regex("(?m)^\\s*>.*$"),                                     // quoted lines
+    )
+
+    // Signature delimiters — everything from the first match onward is dropped.
+    private val SIGNATURE_MARKERS = listOf(
+        Regex("(?m)^-- ?$"),                                        // RFC 3676 "-- " sig delimiter
+        Regex("(?im)^\\s*Sent from my \\w+"),                       // "Sent from my iPhone"
+        Regex("(?im)^\\s*Get Outlook for \\w+"),
+    )
+
+    private fun cleanReplyHistory(text: String): String {
+        if (text.isBlank()) return text
+        var cut = text.length
+        for (re in REPLY_MARKERS + SIGNATURE_MARKERS) {
+            re.find(text)?.let { if (it.range.first < cut) cut = it.range.first }
+        }
+        return text.substring(0, cut)
+            .replace(Regex("\\n{3,}"), "\n\n")
+            .trim()
+    }
 
     private fun decodeEntities(s: String): String =
         s.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")

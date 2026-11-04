@@ -3,12 +3,14 @@ package com.example.locall.voice.email
 import android.content.Context
 import android.util.Log
 import com.example.locall.voice.LlmBridge
+import com.example.locall.voice.email.cache.EmailRepository
 
 private const val TAG = "EmailCommandHandler"
 
 class EmailCommandHandler(appContext: Context) {
 
     private val app = appContext.applicationContext
+    private val repo = EmailRepository(app)
 
     suspend fun handle(
         context: Context,
@@ -57,13 +59,26 @@ class EmailCommandHandler(appContext: Context) {
         intent: EmailIntent,
         confirm: suspend (String) -> Boolean,
         speak: (String) -> Unit,
-    ): String = when (intent) {
+    ): String {
+        // Best-effort: fold in any changes since the last sync so the cache isn't stale.
+        repo.refresh(token)
+        return dispatch(context, token, intent, confirm, speak)
+    }
+
+    private suspend fun dispatch(
+        context: Context,
+        token: String,
+        intent: EmailIntent,
+        confirm: suspend (String) -> Boolean,
+        speak: (String) -> Unit,
+    ): String {
+        return when (intent) {
 
         is EmailIntent.ReadLatest -> {
             val ids = GmailApi.list(token, "in:inbox", max = intent.count.coerceIn(1, 3))
             if (ids.isEmpty()) return "📭 your inbox is empty"
-            val m = GmailApi.metadata(token, ids.first())
-            val body = GmailApi.plainText(token, ids.first())
+            val m = repo.metadata(token, ids.first())
+            val body = repo.body(token, ids.first())
             val spoken = "From ${EmailSummarizer.cleanFrom(m.from)}. " +
                 "Subject: ${m.subject.ifBlank { "no subject" }}. " +
                 body.take(600).ifBlank { m.snippet }
@@ -72,25 +87,37 @@ class EmailCommandHandler(appContext: Context) {
         }
 
         is EmailIntent.Summarize -> {
-            val ids = GmailApi.list(token, intent.query, max = 20)
-            if (ids.isEmpty()) { speak("You have no emails matching that."); return "📭 nothing to summarise" }
-            val messages = ids.map { GmailApi.metadata(token, it) }
+            val (messages, fromCache) = repo.listMessages(
+                token, intent.query, max = 20, scope = EmailRepository.CacheScope.RECENT_INBOX,
+            )
+            if (messages.isEmpty()) { speak("You have no emails matching that."); return "📭 nothing to summarise" }
             val summary = EmailSummarizer.summarize(context, messages)
-            speak(summary)
-            "📋 summarised ${messages.size} email${plural(messages.size)}"
+            speak(cachePrefix(fromCache) + summary)
+            "📋 summarised ${messages.size} email${plural(messages.size)}${cacheTag(fromCache)}"
         }
 
+        is EmailIntent.Search -> search(token, intent, speak)
+
         is EmailIntent.FindImportant -> {
-            val ids = GmailApi.list(token, "is:important is:unread in:inbox", max = 15)
-            if (ids.isEmpty()) { speak("Nothing important right now."); return "✅ nothing important" }
-            val messages = ids.map { GmailApi.metadata(token, it) }
+            val (messages, fromCache) = repo.listMessages(
+                token, "is:important is:unread in:inbox", max = 15,
+                scope = EmailRepository.CacheScope.IMPORTANT_UNREAD,
+            )
+            if (messages.isEmpty()) { speak("Nothing important right now."); return "✅ nothing important" }
             val summary = EmailSummarizer.summarize(context, messages)
-            speak(summary)
-            "⭐ ${messages.size} important email${plural(messages.size)}"
+            speak(cachePrefix(fromCache) + summary)
+            "⭐ ${messages.size} important email${plural(messages.size)}${cacheTag(fromCache)}"
         }
 
         is EmailIntent.UnreadCount -> {
-            val n = GmailApi.list(token, "is:unread in:inbox").size
+            val n = try {
+                GmailApi.list(token, "is:unread in:inbox").size
+            } catch (e: java.io.IOException) {
+                if (e is GmailApi.Unauthorized) throw e
+                val cached = repo.unreadCountCached()
+                speak("You're offline. You had $cached unread email${plural(cached)} at last sync.")
+                return "✉️ $cached unread (cached)"
+            }
             val msg = if (n == 0) "You have no unread emails." else "You have $n unread email${plural(n)}."
             speak(msg)
             "✉️ $n unread"
@@ -101,6 +128,7 @@ class EmailCommandHandler(appContext: Context) {
             if (ids.isEmpty()) return "✅ nothing unread to mark"
             if (!confirm("mark ${ids.size} email${plural(ids.size)} as read?")) return "❌ cancelled"
             GmailApi.markRead(token, ids)
+            repo.onMarkedRead(ids)
             "✅ marked ${ids.size} as read"
         }
 
@@ -109,6 +137,7 @@ class EmailCommandHandler(appContext: Context) {
             if (ids.isEmpty()) return "✅ nothing to archive"
             if (!confirm("archive ${ids.size} email${plural(ids.size)}?")) return "❌ cancelled"
             GmailApi.archive(token, ids)
+            repo.onArchived(ids)
             "🗂️ archived ${ids.size} email${plural(ids.size)}"
         }
 
@@ -117,6 +146,7 @@ class EmailCommandHandler(appContext: Context) {
             if (ids.isEmpty()) return "✅ nothing to delete"
             if (!confirm("move ${ids.size} email${plural(ids.size)} to Trash?")) return "❌ cancelled"
             GmailApi.trash(token, ids)
+            repo.onTrashed(ids)
             "🗑️ trashed ${ids.size} email${plural(ids.size)}"
         }
 
@@ -125,11 +155,61 @@ class EmailCommandHandler(appContext: Context) {
             if (ids.isEmpty()) return "📭 inbox already clear"
             if (!confirm("archive ALL ${ids.size} email${plural(ids.size)} in your inbox?")) return "❌ cancelled"
             GmailApi.archive(token, ids)
+            repo.onArchived(ids)
             "🧹 cleared ${ids.size} email${plural(ids.size)} from your inbox"
         }
 
         is EmailIntent.Unknown -> "🤷 didn't catch what to do with your email"
+        }
     }
+
+    /** Find ONE specific email by content and read the best match aloud. */
+    private suspend fun search(
+        token: String,
+        intent: EmailIntent.Search,
+        speak: (String) -> Unit,
+    ): String {
+        val ids = GmailApi.list(token, intent.query, max = 10)
+        if (ids.isEmpty()) {
+            speak("I couldn't find any email matching that.")
+            return "🔍 no match for “${intent.query}”"
+        }
+        // Rank the top few candidates by how well subject/snippet match the topic words.
+        val candidates = repo.metadataFor(token, ids.take(5))
+        val best = pickBest(candidates, topicWords(intent.query)) ?: candidates.first()
+        val body = repo.body(token, best.id)
+        val more = if (ids.size > 1) " I found ${ids.size} possible matches; this looks like the one." else ""
+        speak(
+            "Found an email from ${EmailSummarizer.cleanFrom(best.from)}. " +
+                "Subject: ${best.subject.ifBlank { "no subject" }}. " +
+                body.take(600).ifBlank { best.snippet } + more,
+        )
+        return "🔍 ${EmailSummarizer.cleanFrom(best.from)} — ${best.subject.ifBlank { "(no subject)" }}"
+    }
+
+    /** Content words from a Gmail query, dropping operators (from:, newer_than:, etc.) and quotes. */
+    private fun topicWords(query: String): List<String> =
+        query.split(Regex("\\s+"))
+            .filter { it.isNotBlank() && !it.contains(':') }
+            .map { it.trim('"').lowercase() }
+            .filter { it.length > 2 }
+
+    /** Pick the candidate whose subject+snippet contains the most topic words; tie-break by recency. */
+    private fun pickBest(
+        candidates: List<GmailApi.Message>,
+        words: List<String>,
+    ): GmailApi.Message? {
+        if (candidates.isEmpty() || words.isEmpty()) return candidates.firstOrNull()
+        return candidates.maxByOrNull { m ->
+            val hay = (m.subject + " " + m.snippet).lowercase()
+            val score = words.count { hay.contains(it) }
+            score * 1_000_000_000_000L + m.internalDateMs / 1000 // score first, recency as tie-break
+        }
+    }
+
+    private fun cachePrefix(fromCache: Boolean) = if (fromCache) "You're offline, so this is from your last sync. " else ""
+
+    private fun cacheTag(fromCache: Boolean) = if (fromCache) " (cached)" else ""
 
     private fun ensureInbox(query: String): String =
         if (query.contains("in:inbox") || query.contains("label:inbox")) query else "$query in:inbox"

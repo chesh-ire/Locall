@@ -6,6 +6,9 @@ sealed interface EmailIntent {
 
     data class Summarize(val query: String = "newer_than:1d in:inbox") : EmailIntent
 
+    /** Find a specific email by content (full-text Gmail query), then read the best match aloud. */
+    data class Search(val query: String) : EmailIntent
+
     data object FindImportant : EmailIntent
 
     data object UnreadCount : EmailIntent

@@ -1,8 +1,21 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
 }
+
+// Spotify Web API credentials for query→URI track resolution (voice/music/SpotifyApi.kt).
+// Kept out of source control: set `spotify.clientId` / `spotify.clientSecret` in local.properties.
+// Absent credentials compile to empty strings — the resolver disables itself and the app falls
+// back to the Accessibility search flow. See MUSIC_SETUP.md.
+val spotifyProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+fun spotifyProp(name: String): String =
+    (spotifyProps.getProperty(name) ?: System.getenv(name.replace('.', '_').uppercase()) ?: "").trim()
 
 android {
     namespace = "com.example.locall"
@@ -18,6 +31,9 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"${spotifyProp("spotify.clientId")}\"")
+        buildConfigField("String", "SPOTIFY_CLIENT_SECRET", "\"${spotifyProp("spotify.clientSecret")}\"")
 
         // 64-bit only: whisper.cpp/llama.cpp NEON + the affinity code assume arm64.
         ndk {
