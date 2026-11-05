@@ -3,6 +3,7 @@ package com.example.locall.voice.email.cache
 import android.content.Context
 import android.util.Log
 import com.example.locall.voice.email.GmailApi
+import com.example.locall.voice.email.ThreadSummarizer
 import java.io.IOException
 
 private const val TAG = "EmailRepository"
@@ -104,6 +105,78 @@ class EmailRepository(context: Context) {
     }
 
     suspend fun onTrashed(ids: List<String>) = ids.forEach { dao.delete(it) }
+
+    // ---------- thread summaries (incremental) ----------
+
+    /**
+     * Compact summary of a whole thread, maintained incrementally. Returns the stored summary with NO
+     * inference when the thread is unchanged; folds in only new messages when some arrived; and does a
+     * full map-reduce only on first sight (or if the thread was mutated/pruned underneath us).
+     */
+    suspend fun threadSummary(
+        context: Context,
+        token: String,
+        threadId: String,
+    ): ThreadSummarizer.ThreadSummary {
+        val msgs = GmailApi.threadMessages(token, threadId)
+        if (msgs.isEmpty()) {
+            return ThreadSummarizer.ThreadSummary("There are no readable messages in this thread.")
+        }
+        val currentIds = msgs.map { it.id }
+        val stored = dao.getThreadSummary(threadId)
+
+        val result: ThreadSummarizer.ThreadSummary = if (stored == null) {
+            Log.i(TAG, "threadSummary($threadId): first sight — full summarise")
+            ThreadSummarizer.summarizeFull(context, msgs)
+        } else {
+            val covered = stored.coveredIdSet()
+            val currentIdSet = currentIds.toSet()
+            val newMsgs = msgs.filter { it.id !in covered }
+            // A previously-covered message vanished, or the count shrank → thread changed; re-summarise.
+            val mutated = stored.messageCount > msgs.size || covered.any { it !in currentIdSet }
+            when {
+                newMsgs.isEmpty() && !mutated -> {
+                    Log.i(TAG, "threadSummary($threadId): unchanged — no inference")
+                    return stored.toSummary()
+                }
+                mutated -> {
+                    Log.i(TAG, "threadSummary($threadId): thread mutated — full re-summarise")
+                    ThreadSummarizer.summarizeFull(context, msgs)
+                }
+                else -> {
+                    Log.i(TAG, "threadSummary($threadId): ${newMsgs.size} new — incremental update")
+                    ThreadSummarizer.update(context, stored.toSummary(), newMsgs)
+                }
+            }
+        }
+        persistThreadSummary(threadId, result, currentIds, msgs)
+        return result
+    }
+
+    private suspend fun persistThreadSummary(
+        threadId: String,
+        s: ThreadSummarizer.ThreadSummary,
+        coveredIds: List<String>,
+        msgs: List<GmailApi.ThreadFullMessage>,
+    ) {
+        dao.upsertThreadSummary(
+            ThreadSummaryEntity(
+                threadId = threadId,
+                summary = s.summary,
+                decisions = s.decisions.joinToString("\n"),
+                actions = s.actions.joinToString("\n"),
+                deadlines = s.deadlines.joinToString("\n"),
+                coveredIds = coveredIds.joinToString(","),
+                messageCount = msgs.size,
+                latestInternalDateMs = msgs.maxOfOrNull { it.internalDateMs } ?: 0L,
+                updatedAt = now(),
+            ),
+        )
+    }
+
+    private fun ThreadSummaryEntity.toSummary() = ThreadSummarizer.ThreadSummary(
+        summary = summary, decisions = decisionList(), actions = actionList(), deadlines = deadlineList(),
+    )
 
     // ---------- incremental sync ----------
 

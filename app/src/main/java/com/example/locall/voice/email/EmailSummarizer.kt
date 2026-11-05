@@ -15,6 +15,11 @@ object EmailSummarizer {
             "summary: how many there are, who they're from, and which look important or need a " +
             "reply. 2-4 sentences, plain conversational English, no markdown, no preamble."
 
+    private const val ONE_SYSTEM_PROMPT =
+        "You summarise a SINGLE email for the user to hear aloud. Given the sender, subject and body, " +
+            "say in 1-3 sentences who it's from, what it's about, and any action or reply needed. " +
+            "Plain conversational English, no markdown, no preamble."
+
     suspend fun summarize(context: Context, messages: List<GmailApi.Message>): String {
         if (messages.isEmpty()) return "You have no emails matching that."
         val block = buildString {
@@ -26,8 +31,8 @@ object EmailSummarizer {
         }
         val decodeThreads = ThermalGovernor.decodeThreads(context)
         return try {
-            LlmBridge.generateWithGrammar(
-                systemPrompt = SYSTEM_PROMPT, userPrompt = block, grammar = "",
+            LlmBridge.generateText(
+                systemPrompt = SYSTEM_PROMPT, userPrompt = block,
                 temperature = 0.5f, maxTokens = 200, decodeThreads = decodeThreads,
             ).trim().ifBlank { fallback(messages) }
         } catch (t: Throwable) {
@@ -35,6 +40,28 @@ object EmailSummarizer {
             fallback(messages)
         }
     }
+
+    /** Summarise one email's actual content (used for "summarise the last email"). */
+    suspend fun summarizeOne(context: Context, message: GmailApi.Message, body: String): String {
+        val content = body.ifBlank { message.snippet }
+        val from = cleanFrom(message.from)
+        val subject = message.subject.ifBlank { "(no subject)" }
+        if (content.isBlank()) return "Your latest email is from $from, subject $subject, but it has no readable text."
+        val prompt = "From: $from\nSubject: $subject\n\n${content.take(2000)}"
+        val decodeThreads = ThermalGovernor.decodeThreads(context)
+        return try {
+            LlmBridge.generateText(
+                systemPrompt = ONE_SYSTEM_PROMPT, userPrompt = prompt,
+                temperature = 0.5f, maxTokens = 200, decodeThreads = decodeThreads,
+            ).trim().ifBlank { oneFallback(from, subject, content) }
+        } catch (t: Throwable) {
+            Log.w(TAG, "summarizeOne failed, using plain fallback", t)
+            oneFallback(from, subject, content)
+        }
+    }
+
+    private fun oneFallback(from: String, subject: String, content: String): String =
+        "Your latest email is from $from, subject $subject. ${content.take(220)}"
 
     private fun fallback(messages: List<GmailApi.Message>): String {
         val senders = messages.take(3).joinToString(", ") { cleanFrom(it.from) }

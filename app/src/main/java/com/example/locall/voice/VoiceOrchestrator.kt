@@ -67,6 +67,11 @@ class VoiceOrchestrator(
                             ActionConfirmation.confirm(it, speech, description)
                         } ?: false
                     },
+                    listen = { prompt ->
+                        VoiceAccessibilityService.instance?.let {
+                            ActionConfirmation.listen(it, speech, prompt)
+                        }
+                    },
                 )
                 if (didPause && !res.keepMusicPaused) MediaPlaybackGate.resume(appContext)
                 Log.i(TAG, "startListening: pipeline result transcript=\"${res.transcript}\" action=\"${res.action}\"")

@@ -191,9 +191,178 @@ object GmailApi {
     suspend fun markRead(token: String, ids: List<String>) =
         batchModify(token, ids, removeLabelIds = listOf("UNREAD"))
 
+    // Also drops SPAM so trashing a spam message actually moves it out of Spam (SPAM and TRASH are
+    // mutually exclusive); removing a label that isn't present is a harmless no-op for normal mail.
     suspend fun trash(token: String, ids: List<String>) =
-        batchModify(token, ids, addLabelIds = listOf("TRASH"), removeLabelIds = listOf("INBOX", "UNREAD"))
+        batchModify(token, ids, addLabelIds = listOf("TRASH"), removeLabelIds = listOf("INBOX", "UNREAD", "SPAM"))
 
+
+    /**
+     * Compose and send a plain-text email via users.messages.send.
+     * From is filled in by Gmail from the authenticated account. Covered by the gmail.modify scope.
+     */
+    suspend fun send(token: String, to: String, subject: String, body: String): Unit =
+        withContext(Dispatchers.IO) {
+            val mime = buildString {
+                append("To: ").append(to).append("\r\n")
+                append("Subject: ").append(subject).append("\r\n")
+                append("Content-Type: text/plain; charset=\"UTF-8\"\r\n")
+                append("MIME-Version: 1.0\r\n")
+                append("\r\n")
+                append(body)
+            }
+            val raw = Base64.encodeToString(
+                mime.toByteArray(Charsets.UTF_8),
+                Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING,
+            )
+            postNoContent(token, "$BASE/messages/send", JSONObject().put("raw", raw))
+        }
+
+    /** One earlier message in a thread, used to give the reply writer conversation context. */
+    data class ThreadMessage(val from: String, val text: String)
+
+    /**
+     * Fetch up to [max] most-recent messages of a thread (oldest→newest among those returned), each with
+     * its sender and cleaned plain-text body. Used to ground a reply in the prior conversation.
+     */
+    suspend fun thread(token: String, threadId: String, max: Int = 4): List<ThreadMessage> =
+        withContext(Dispatchers.IO) {
+            val o = getJson(token, "$BASE/threads/$threadId?format=full")
+            val msgs = o.optJSONArray("messages") ?: return@withContext emptyList()
+            val out = ArrayList<ThreadMessage>(msgs.length())
+            for (i in 0 until msgs.length()) {
+                val m = msgs.getJSONObject(i)
+                val payload = m.optJSONObject("payload")
+                val headers = payload?.optJSONArray("headers") ?: JSONArray()
+                var from = ""
+                for (h in 0 until headers.length()) {
+                    val hdr = headers.getJSONObject(h)
+                    if (hdr.optString("name").equals("From", ignoreCase = true)) { from = hdr.optString("value"); break }
+                }
+                val body = payload?.let { cleanReplyHistory(extractText(it)) }
+                    .orEmpty().ifBlank { decodeEntities(m.optString("snippet")) }.trim()
+                if (body.isNotBlank()) out.add(ThreadMessage(from, body))
+            }
+            // Keep only the most recent [max] (they arrive oldest→newest from Gmail).
+            if (out.size > max) out.subList(out.size - max, out.size).toList() else out
+        }
+
+    /** One thread message with the identity needed for chronological ordering and incremental summarisation. */
+    data class ThreadFullMessage(
+        val id: String,
+        val from: String,
+        val internalDateMs: Long,
+        /** Cleaned plain-text body (quoted reply-history and signatures stripped); never blank. */
+        val body: String,
+    )
+
+    /**
+     * Fetch ALL messages of a thread (oldest→newest), each with its id, sender, date and cleaned body.
+     * Unlike [thread] this applies no cap (the summariser chunks instead) and exposes ids/dates so the
+     * caller can sort chronologically and diff which messages are new. Blank-bodied messages are dropped.
+     */
+    suspend fun threadMessages(token: String, threadId: String): List<ThreadFullMessage> =
+        withContext(Dispatchers.IO) {
+            val o = getJson(token, "$BASE/threads/$threadId?format=full")
+            val msgs = o.optJSONArray("messages") ?: return@withContext emptyList()
+            val out = ArrayList<ThreadFullMessage>(msgs.length())
+            for (i in 0 until msgs.length()) {
+                val m = msgs.getJSONObject(i)
+                val payload = m.optJSONObject("payload")
+                val headers = payload?.optJSONArray("headers") ?: JSONArray()
+                var from = ""
+                for (h in 0 until headers.length()) {
+                    val hdr = headers.getJSONObject(h)
+                    if (hdr.optString("name").equals("From", ignoreCase = true)) { from = hdr.optString("value"); break }
+                }
+                val body = payload?.let { cleanReplyHistory(extractText(it)) }
+                    .orEmpty().ifBlank { decodeEntities(m.optString("snippet")) }.trim()
+                if (body.isBlank()) continue
+                out.add(
+                    ThreadFullMessage(
+                        id = m.optString("id"),
+                        from = from,
+                        internalDateMs = m.optString("internalDate").toLongOrNull() ?: 0L,
+                        body = body,
+                    ),
+                )
+            }
+            // Gmail returns oldest→newest, but sort defensively so chronological order is guaranteed.
+            out.sortedBy { it.internalDateMs }
+        }
+
+    /** The thread a message belongs to (one metadata call). */
+    suspend fun threadIdOf(token: String, messageId: String): String = withContext(Dispatchers.IO) {
+        getJson(token, "$BASE/messages/$messageId?format=minimal").optString("threadId")
+    }
+
+    /** Everything needed to reply in-thread to message [id]: headers + the address to reply to. */
+    data class ReplyContext(
+        val threadId: String,
+        val messageIdHeader: String,
+        val references: String,
+        val subject: String,
+        val fromRaw: String,
+        val toEmail: String,
+    )
+
+    suspend fun replyContext(token: String, id: String): ReplyContext = withContext(Dispatchers.IO) {
+        val url = "$BASE/messages/$id?format=metadata" +
+            "&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Message-ID&metadataHeaders=References"
+        val o = getJson(token, url)
+        val headers = o.optJSONObject("payload")?.optJSONArray("headers") ?: JSONArray()
+        fun header(name: String): String {
+            for (i in 0 until headers.length()) {
+                val h = headers.getJSONObject(i)
+                if (h.optString("name").equals(name, ignoreCase = true)) return h.optString("value")
+            }
+            return ""
+        }
+        val from = header("From")
+        ReplyContext(
+            threadId = o.optString("threadId"),
+            messageIdHeader = header("Message-ID"),
+            references = header("References"),
+            subject = header("Subject"),
+            fromRaw = from,
+            toEmail = extractEmail(from),
+        )
+    }
+
+    /** Reply within an existing thread: sets Re: subject, In-Reply-To/References, and threadId. */
+    suspend fun sendReply(
+        token: String,
+        to: String,
+        subject: String,
+        body: String,
+        threadId: String,
+        inReplyTo: String,
+        references: String,
+    ): Unit = withContext(Dispatchers.IO) {
+        // References should chain the prior References plus the message being replied to.
+        val refs = listOf(references, inReplyTo).filter { it.isNotBlank() }.joinToString(" ")
+        val mime = buildString {
+            append("To: ").append(to).append("\r\n")
+            append("Subject: ").append(subject).append("\r\n")
+            if (inReplyTo.isNotBlank()) append("In-Reply-To: ").append(inReplyTo).append("\r\n")
+            if (refs.isNotBlank()) append("References: ").append(refs).append("\r\n")
+            append("Content-Type: text/plain; charset=\"UTF-8\"\r\n")
+            append("MIME-Version: 1.0\r\n")
+            append("\r\n")
+            append(body)
+        }
+        val raw = Base64.encodeToString(
+            mime.toByteArray(Charsets.UTF_8),
+            Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING,
+        )
+        postNoContent(token, "$BASE/messages/send", JSONObject().put("raw", raw).put("threadId", threadId))
+    }
+
+    /** Pull the bare address out of a From header like `Name <a@b.com>`, or the whole thing if already bare. */
+    private fun extractEmail(from: String): String {
+        Regex("<([^>]+)>").find(from)?.let { return it.groupValues[1].trim() }
+        return from.trim().takeIf { it.contains("@") } ?: ""
+    }
 
     private fun getJson(token: String, url: String): JSONObject {
         val (code, body) = request("GET", url, token, null)

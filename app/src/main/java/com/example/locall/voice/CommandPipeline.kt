@@ -45,6 +45,8 @@ object CommandPipeline {
         mediaWasPlaying: Boolean = false,
         onStatus: (String) -> Unit = {},
         confirm: suspend (String) -> Boolean = { false },
+        /** Speak a prompt and capture a free-form spoken reply (null = nothing heard). Used by the email reply loop. */
+        listen: suspend (String) -> String? = { null },
     ): Result {
         Log.i(TAG, "runText: recognized=\"$text\"")
         appContextForLlm = appContext.applicationContext
@@ -56,7 +58,7 @@ object CommandPipeline {
 
         val action = withContext(InferenceDispatcher.dispatcher) { matcher.resolve(t, onStatus) }
         Log.i(TAG, "runText: resolved to $action")
-        val resultText = dispatch(action, appContext, mediaWasPlaying, onStatus, confirm)
+        val resultText = dispatch(action, appContext, mediaWasPlaying, onStatus, confirm, listen)
         Log.i(TAG, "runText: dispatch result=\"$resultText\"")
         val keepPaused = action is CommandAction.Music &&
             MusicIntents.transport(action.transcript.lowercase()) == MusicIntent.Pause
@@ -69,6 +71,7 @@ object CommandPipeline {
         mediaWasPlaying: Boolean,
         onStatus: (String) -> Unit,
         confirm: suspend (String) -> Boolean,
+        listen: suspend (String) -> String?,
     ): String {
         if (action is CommandAction.Volume) {
             return handleVolume(appContext, action.up, mediaWasPlaying, confirm)
@@ -105,7 +108,7 @@ object CommandPipeline {
         }
         if (action is CommandAction.Email) {
             val speak: (String) -> Unit = { text -> VoiceAccessibilityService.instance?.speak(text) }
-            return email(appContext).handle(appContext, action.transcript, onStatus, confirm, speak)
+            return email(appContext).handle(appContext, action.transcript, onStatus, confirm, speak, listen)
         }
         if (action is CommandAction.Battery) {
             val speak: (String) -> Unit = { text -> VoiceAccessibilityService.instance?.speak(text) }

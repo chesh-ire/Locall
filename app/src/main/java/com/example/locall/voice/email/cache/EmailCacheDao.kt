@@ -52,4 +52,15 @@ interface EmailCacheDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun setSyncState(state: EmailSyncStateEntity)
+
+    // ----- thread summaries (incremental) -----
+
+    @Query("SELECT * FROM thread_summaries WHERE threadId = :threadId LIMIT 1")
+    suspend fun getThreadSummary(threadId: String): ThreadSummaryEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertThreadSummary(summary: ThreadSummaryEntity)
+
+    @Query("DELETE FROM thread_summaries WHERE threadId = :threadId")
+    suspend fun deleteThreadSummary(threadId: String)
 }

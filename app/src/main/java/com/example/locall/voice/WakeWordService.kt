@@ -146,6 +146,11 @@ class WakeWordService : Service() {
                             ActionConfirmation.confirm(it, speech, description)
                         } ?: false
                     },
+                    listen = { prompt ->
+                        VoiceAccessibilityService.instance?.let {
+                            ActionConfirmation.listen(it, speech, prompt)
+                        }
+                    },
                 )
             }
         }.getOrNull()
