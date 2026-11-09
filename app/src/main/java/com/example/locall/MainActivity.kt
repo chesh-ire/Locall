@@ -32,6 +32,7 @@ import com.example.locall.ui.theme.LocaLLTheme
 import com.example.locall.voice.VoiceOrchestrator
 import com.example.locall.voice.WakeWordService
 import com.example.locall.voice.email.GmailAuth
+import com.example.locall.voice.research.ui.ResearchScreen
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -45,14 +46,36 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             LocaLLTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { pad ->
-                    VoiceScreen(
-                        orchestrator = orchestrator,
-                        modifier = Modifier.padding(pad),
-                        openA11ySettings = {
-                            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                        },
-                    )
+                var tab by remember { mutableIntStateOf(0) }
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    bottomBar = {
+                        NavigationBar {
+                            NavigationBarItem(
+                                selected = tab == 0,
+                                onClick = { tab = 0 },
+                                icon = { Text("🎙️") },
+                                label = { Text("Assistant") },
+                            )
+                            NavigationBarItem(
+                                selected = tab == 1,
+                                onClick = { tab = 1 },
+                                icon = { Text("🔎") },
+                                label = { Text("Knowledge") },
+                            )
+                        }
+                    },
+                ) { pad ->
+                    when (tab) {
+                        0 -> VoiceScreen(
+                            orchestrator = orchestrator,
+                            modifier = Modifier.padding(pad),
+                            openA11ySettings = {
+                                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                            },
+                        )
+                        else -> ResearchScreen(modifier = Modifier.padding(pad))
+                    }
                 }
             }
         }

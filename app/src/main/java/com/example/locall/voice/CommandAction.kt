@@ -31,6 +31,9 @@ sealed interface CommandAction {
 
     data class Battery(val transcript: String) : CommandAction
 
+    /** A question answered over the local knowledge base by the research agent. */
+    data class Research(val transcript: String) : CommandAction
+
     /** Set a device alarm at [hour] (0–23) / [minute] (0–59) via the system clock app. */
     data class SetAlarm(val hour: Int, val minute: Int) : CommandAction
 

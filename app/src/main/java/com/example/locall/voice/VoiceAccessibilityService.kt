@@ -101,6 +101,8 @@ class VoiceAccessibilityService : AccessibilityService() {
             error("Email is handled by the email module in CommandPipeline.dispatch()")
         is CommandAction.Battery ->
             error("Battery is handled by the battery module in CommandPipeline.dispatch()")
+        is CommandAction.Research ->
+            error("Research is handled by the research module in CommandPipeline.dispatch()")
         is CommandAction.Torch ->
             error("Torch is handled by TorchController in CommandPipeline.dispatch()")
         is CommandAction.Volume ->

@@ -4,6 +4,7 @@ import com.example.locall.voice.battery.BatteryIntents
 import com.example.locall.voice.email.EmailIntents
 import com.example.locall.voice.memory.MemoryIntents
 import com.example.locall.voice.music.MusicIntents
+import com.example.locall.voice.research.ResearchIntents
 
 class IntentMatcher(
     private val llmFallback: (suspend (String, onStatus: (String) -> Unit) -> CommandAction)? = null,
@@ -33,6 +34,8 @@ class IntentMatcher(
         if (MemoryIntents.matches(normalized)) return CommandAction.Memory(original.trim())
         if (EmailIntents.matches(normalized)) return CommandAction.Email(original.trim())
         if (BatteryIntents.matches(normalized)) return CommandAction.Battery(original.trim())
+        // After email so email-specific asks still go to Gmail; research matches corpus-wide phrasings.
+        if (ResearchIntents.matches(normalized)) return CommandAction.Research(original.trim())
 
         ClockIntents.parse(normalized)?.let { return it }
 
