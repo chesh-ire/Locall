@@ -1,5 +1,6 @@
 package com.example.locall.voice
 
+import com.example.locall.voice.agent.AgentIntents
 import com.example.locall.voice.battery.BatteryIntents
 import com.example.locall.voice.email.EmailIntents
 import com.example.locall.voice.memory.MemoryIntents
@@ -32,9 +33,9 @@ class IntentMatcher(
     fun matchGrammar(normalized: String, original: String): CommandAction? {
         if (MusicIntents.matches(normalized)) return CommandAction.Music(original.trim())
         if (MemoryIntents.matches(normalized)) return CommandAction.Memory(original.trim())
+        if (AgentIntents.matches(normalized)) return CommandAction.Agent(original.trim())
         if (EmailIntents.matches(normalized)) return CommandAction.Email(original.trim())
         if (BatteryIntents.matches(normalized)) return CommandAction.Battery(original.trim())
-        // After email so email-specific asks still go to Gmail; research matches corpus-wide phrasings.
         if (ResearchIntents.matches(normalized)) return CommandAction.Research(original.trim())
 
         ClockIntents.parse(normalized)?.let { return it }

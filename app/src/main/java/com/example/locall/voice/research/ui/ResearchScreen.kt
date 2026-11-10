@@ -15,6 +15,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.example.locall.ui.components.BrandHeader
+import com.example.locall.ui.components.SectionCard
 import com.example.locall.voice.research.data.DocumentEntity
 import com.example.locall.voice.research.data.KnowledgeRepository
 import com.example.locall.voice.research.importer.AppDataImporter
@@ -25,12 +27,6 @@ import com.example.locall.voice.research.pipeline.KnowledgeBuilder
 import com.example.locall.voice.research.pipeline.ResearchAgent
 import kotlinx.coroutines.launch
 
-/**
- * The Personal Knowledge & Research Agent screen: Import (pull sources into the local KB), Knowledge
- * (what's been imported), and Ask (run the multi-step agent over a typed question). All processing is
- * on-device and routed through the shared inference thread, so the Import tab shows real per-chunk
- * progress and the Ask tab shows which reasoning stage is running.
- */
 @Composable
 fun ResearchScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -46,7 +42,6 @@ fun ResearchScreen(modifier: Modifier = Modifier) {
     suspend fun refreshDocs() { documents = repo.documents() }
     LaunchedEffect(Unit) { refreshDocs() }
 
-    // Shared import→build runner: produces RawDocuments, then runs the pipeline with live progress.
     fun runImport(label: String, produce: suspend () -> List<RawDocument>) {
         if (busy) return
         busy = true; status = "$label…"; progress = null
@@ -70,12 +65,14 @@ fun ResearchScreen(modifier: Modifier = Modifier) {
     }
 
     Column(modifier.fillMaxSize()) {
-        Text(
-            "Knowledge & Research Agent",
-            style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.padding(16.dp),
+        BrandHeader(
+            title = "Knowledge",
+            subtitle = "Personal research agent · on-device",
         )
-        TabRow(selectedTabIndex = tab) {
+        TabRow(
+            selectedTabIndex = tab,
+            containerColor = MaterialTheme.colorScheme.background,
+        ) {
             listOf("Import", "Knowledge", "Ask").forEachIndexed { i, label ->
                 Tab(selected = tab == i, onClick = { tab = i }, text = { Text(label) })
             }
@@ -137,7 +134,7 @@ private fun ImportTab(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        SectionCard("Gmail") {
+        SectionCard("Gmail", leading = "✉️") {
             Text("Pull recent inbox emails into the knowledge base.", style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -167,7 +164,7 @@ private fun ImportTab(
             }
         }
 
-        SectionCard("Note or transcript") {
+        SectionCard("Note or transcript", leading = "📝") {
             OutlinedTextField(
                 value = noteTitle, onValueChange = { noteTitle = it },
                 label = { Text("Title (optional)") }, singleLine = true,
@@ -199,7 +196,7 @@ private fun ImportTab(
             }
         }
 
-        SectionCard("App data") {
+        SectionCard("App data", leading = "📱") {
             Text("Fold your saved memories and listening history into the knowledge base.",
                 style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(8.dp))
@@ -299,13 +296,3 @@ private fun AskTab(busy: Boolean, setBusy: (Boolean) -> Unit) {
     }
 }
 
-@Composable
-private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Unit) {
-    ElevatedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            content()
-        }
-    }
-}

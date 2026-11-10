@@ -121,7 +121,8 @@ GenerationStats g_last_stats;
 
 std::string run_generation(
         LlmSession *session, const std::string &system_prompt, const std::string &user_prompt,
-        const char *grammar, float temperature, int max_tokens, int decode_threads) {
+        const char *grammar, float temperature, int max_tokens, int decode_threads,
+        bool stop_on_blank = true) {
     bool pinned = pin_current_thread_to(topology().performance_cores);
     bool prioritized = setpriority(PRIO_PROCESS, 0, -10) == 0;
 
@@ -174,8 +175,8 @@ std::string run_generation(
         out += token_to_piece(session->vocab, next);
         generated++;
 
-        if (out.find("\n\n") != std::string::npos ||
-            out.find("<|start_header_id|>") != std::string::npos) {
+        if (out.find("<|start_header_id|>") != std::string::npos ||
+            (stop_on_blank && out.find("\n\n") != std::string::npos)) {
             break;
         }
 
@@ -269,6 +270,24 @@ Java_com_example_locall_voice_LlmBridge_nativeGenerate(
 }
 
 JNIEXPORT jstring JNICALL
+Java_com_example_locall_voice_LlmBridge_nativeGenerateLong(
+        JNIEnv *env, jobject,
+        jlong handle, jstring systemPrompt, jstring userPrompt,
+        jfloat temperature, jint maxTokens, jint decodeThreads) {
+    auto *session = reinterpret_cast<LlmSession *>(handle);
+    if (!session) return env->NewStringUTF("");
+
+    const char *sys_chars = env->GetStringUTFChars(systemPrompt, nullptr);
+    const char *user_chars = env->GetStringUTFChars(userPrompt, nullptr);
+    std::string out = run_generation(
+            session, sys_chars, user_chars, nullptr,
+            temperature, maxTokens, decodeThreads, false);
+    env->ReleaseStringUTFChars(systemPrompt, sys_chars);
+    env->ReleaseStringUTFChars(userPrompt, user_chars);
+    return env->NewStringUTF(out.c_str());
+}
+
+JNIEXPORT jstring JNICALL
 Java_com_example_locall_voice_LlmBridge_nativeGenerateWithGrammar(
         JNIEnv *env, jobject,
         jlong handle, jstring systemPrompt, jstring userPrompt, jstring grammarGbnf,
@@ -296,6 +315,15 @@ Java_com_example_locall_voice_LlmBridge_nativeLastStats(JNIEnv *env, jobject) {
              "%d tok in %.1fs (%.1f tok/s) · prefill %.0fms (%zu tok) · RSS %ldMB",
              g_last_stats.generated_tokens, g_last_stats.decode_ms / 1000.0, tok_per_sec,
              g_last_stats.prefill_ms, g_last_stats.prompt_tokens, g_last_stats.rss_kb / 1024);
+    return env->NewStringUTF(buf);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_example_locall_voice_LlmBridge_nativeLastMetrics(JNIEnv *env, jobject) {
+    char buf[160];
+    snprintf(buf, sizeof(buf), "%zu,%d,%.3f,%.3f,%ld",
+             g_last_stats.prompt_tokens, g_last_stats.generated_tokens,
+             g_last_stats.prefill_ms, g_last_stats.decode_ms, g_last_stats.rss_kb);
     return env->NewStringUTF(buf);
 }
 

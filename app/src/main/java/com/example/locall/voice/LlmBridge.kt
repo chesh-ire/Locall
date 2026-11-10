@@ -67,6 +67,45 @@ object LlmBridge {
                  0.7f,  60, decodeThreads)
         }.trim()
 
+    data class RawMetrics(
+        val promptTokens: Int,
+        val generatedTokens: Int,
+        val prefillMs: Double,
+        val decodeMs: Double,
+        val rssKb: Long,
+    )
+
+    suspend fun generateMetered(
+        systemPrompt: String,
+        userPrompt: String,
+        temperature: Float = 0.3f,
+        maxTokens: Int = 256,
+        decodeThreads: Int = 0,
+        longForm: Boolean = true,
+    ): Pair<String, RawMetrics> = withContext(InferenceDispatcher.dispatcher) {
+        check(handle != 0L) { "call load()/ensureLoaded() first" }
+        val out = if (longForm) {
+            nativeGenerateLong(handle, systemPrompt, userPrompt, temperature, maxTokens, decodeThreads)
+        } else {
+            nativeGenerate(handle, systemPrompt, userPrompt, false, temperature, maxTokens, decodeThreads)
+        }
+        out to parseMetrics(nativeLastMetrics())
+    }
+
+    private fun parseMetrics(csv: String): RawMetrics {
+        val p = csv.split(',')
+        fun i(idx: Int) = p.getOrNull(idx)?.trim()?.toDoubleOrNull()?.toInt() ?: 0
+        fun d(idx: Int) = p.getOrNull(idx)?.trim()?.toDoubleOrNull() ?: 0.0
+        fun l(idx: Int) = p.getOrNull(idx)?.trim()?.toDoubleOrNull()?.toLong() ?: 0L
+        return RawMetrics(
+            promptTokens = i(0),
+            generatedTokens = i(1),
+            prefillMs = d(2),
+            decodeMs = d(3),
+            rssKb = l(4),
+        )
+    }
+
     fun release() {
         if (handle != 0L) nativeRelease(handle)
         handle = 0L
@@ -125,8 +164,17 @@ object LlmBridge {
         maxTokens: Int,
         decodeThreads: Int,
     ): String
+    private external fun nativeGenerateLong(
+        handle: Long,
+        systemPrompt: String,
+        userPrompt: String,
+        temperature: Float,
+        maxTokens: Int,
+        decodeThreads: Int,
+    ): String
     private external fun nativeRelease(handle: Long)
     private external fun nativeLastStats(): String
+    private external fun nativeLastMetrics(): String
     private external fun nativeModelInfo(handle: Long): String
     private external fun nativeRssKb(): Long
     private external fun nativeCountTokens(handle: Long, systemPrompt: String, userPrompt: String): Int

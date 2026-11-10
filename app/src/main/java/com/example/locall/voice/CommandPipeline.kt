@@ -2,6 +2,7 @@ package com.example.locall.voice
 
 import android.content.Context
 import android.util.Log
+import com.example.locall.voice.agent.PersonalAgentCommandHandler
 import com.example.locall.voice.battery.BatteryCommandHandler
 import com.example.locall.voice.email.EmailCommandHandler
 import com.example.locall.voice.memory.MemoryCommandHandler
@@ -24,6 +25,7 @@ object CommandPipeline {
     @Volatile private var emailHandler: EmailCommandHandler? = null
     @Volatile private var batteryHandler: BatteryCommandHandler? = null
     @Volatile private var researchHandler: ResearchCommandHandler? = null
+    @Volatile private var agentHandler: PersonalAgentCommandHandler? = null
 
     private fun music(context: Context): MusicCommandHandler =
         musicHandler ?: MusicCommandHandler(context.applicationContext).also { musicHandler = it }
@@ -40,6 +42,9 @@ object CommandPipeline {
     private fun research(context: Context): ResearchCommandHandler =
         researchHandler ?: ResearchCommandHandler(context.applicationContext).also { researchHandler = it }
 
+    private fun agent(context: Context): PersonalAgentCommandHandler =
+        agentHandler ?: PersonalAgentCommandHandler(context.applicationContext).also { agentHandler = it }
+
     @Volatile private var appContextForLlm: Context? = null
 
     data class Result(val transcript: String, val action: String, val keepMusicPaused: Boolean = false)
@@ -50,7 +55,6 @@ object CommandPipeline {
         mediaWasPlaying: Boolean = false,
         onStatus: (String) -> Unit = {},
         confirm: suspend (String) -> Boolean = { false },
-        /** Speak a prompt and capture a free-form spoken reply (null = nothing heard). Used by the email reply loop. */
         listen: suspend (String) -> String? = { null },
     ): Result {
         Log.i(TAG, "runText: recognized=\"$text\"")
@@ -123,6 +127,10 @@ object CommandPipeline {
             val speak: (String) -> Unit = { text -> VoiceAccessibilityService.instance?.speak(text) }
             return research(appContext).handle(appContext, action.transcript, onStatus, speak)
         }
+        if (action is CommandAction.Agent) {
+            val speak: (String) -> Unit = { text -> VoiceAccessibilityService.instance?.speak(text) }
+            return agent(appContext).handle(appContext, action.transcript, onStatus, confirm, speak, listen)
+        }
 
         val svc = VoiceAccessibilityService.instance
         if (svc == null) {
@@ -189,6 +197,7 @@ object CommandPipeline {
             is CommandAction.Email -> error("handled above")
             is CommandAction.Battery -> error("handled above")
             is CommandAction.Research -> error("handled above")
+            is CommandAction.Agent -> error("handled above")
             is CommandAction.Volume -> error("handled above")
             is CommandAction.SetAlarm -> error("handled above")
             is CommandAction.SetTimer -> error("handled above")
@@ -208,12 +217,6 @@ object CommandPipeline {
         }.joinToString(" ").ifEmpty { "0s" }
     }
 
-    /**
-     * Volume is deliberately handled here, not in the Accessibility service: it needs no
-     * node traversal. When media was playing at command time we nudge the media stream
-     * (and the paused track resumes afterward at the new level). When nothing was playing
-     * we don't guess which volume the user meant — we ask before touching the ringer.
-     */
     private suspend fun handleVolume(
         appContext: Context,
         up: Boolean,

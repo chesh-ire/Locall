@@ -27,6 +27,14 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- Personal agent (unified inbox + tasks + planning): exact-time reminders for tasks and
+         deadlines via AlarmManager → ReminderReceiver → a LocaLL notification. USE_EXACT_ALARM is
+         the install-granted permission for reminder/alarm apps on Android 13+; SCHEDULE_EXACT_ALARM
+         covers 12. WhatsApp/SMS capture rides a user-enabled NotificationListenerService (no extra
+         manifest permission — the special access is toggled in Settings ▸ Notification access). -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
     <!-- Package visibility (Android 11+): we're a voice launcher, so we must be able
          to see every launchable app in order to open it by spoken name. -->
     <queries>
@@ -85,6 +93,24 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
         </service>
+
+        <!-- Passive capture of messaging notifications (WhatsApp/SMS/Messenger/Telegram) into the
+             agent's unified inbox. Reads only the title + text line; no history, media or uploads.
+             User-enabled in Settings ▸ Notification access. -->
+        <service
+            android:name=".voice.agent.inbox.NotificationCaptureService"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- Fires task/deadline reminders scheduled by FollowUpManager via AlarmManager. -->
+        <receiver
+            android:name=".voice.agent.follow.ReminderReceiver"
+            android:exported="false" />
     </application>
 
 </manifest>

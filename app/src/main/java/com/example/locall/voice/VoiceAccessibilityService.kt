@@ -59,7 +59,6 @@ class VoiceAccessibilityService : AccessibilityService() {
                     val res = CommandPipeline.runText(
                         text,
                         appContext = applicationContext,
-                        // No command-time media pause on this debug path, so a live read is accurate.
                         mediaWasPlaying = VolumeController.isMediaPlaying(applicationContext),
                         onStatus = { status -> Log.i(TAG, "DEBUG status: $status") },
                     )
@@ -103,6 +102,8 @@ class VoiceAccessibilityService : AccessibilityService() {
             error("Battery is handled by the battery module in CommandPipeline.dispatch()")
         is CommandAction.Research ->
             error("Research is handled by the research module in CommandPipeline.dispatch()")
+        is CommandAction.Agent ->
+            error("Agent is handled by the agent module in CommandPipeline.dispatch()")
         is CommandAction.Torch ->
             error("Torch is handled by TorchController in CommandPipeline.dispatch()")
         is CommandAction.Volume ->
@@ -184,11 +185,6 @@ class VoiceAccessibilityService : AccessibilityService() {
     }
 
 
-    /**
-     * Screenshot and lock-screen come free with the accessibility API — no MediaProjection
-     * consent dialog, no Device Admin — but only on recent Android. GLOBAL_ACTION_LOCK_SCREEN
-     * is API 28+, GLOBAL_ACTION_TAKE_SCREENSHOT is API 30+.
-     */
     private fun takeScreenshot(): Boolean {
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R) {
             Log.w(TAG, "takeScreenshot needs Android 11+ (have ${android.os.Build.VERSION.SDK_INT})")
