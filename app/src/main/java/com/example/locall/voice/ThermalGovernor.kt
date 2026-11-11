@@ -16,6 +16,16 @@ object ThermalGovernor {
         return pm.currentThermalStatus
     }
 
+    /**
+     * Thermal headroom forecast: 0.0 = cool, 1.0 = throttling imminent. Returns [Float.NaN]
+     * below API 30, when the device doesn't support it, or if polled too frequently.
+     */
+    fun headroom(context: Context, forecastSeconds: Int = 10): Float {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return Float.NaN
+        val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        return runCatching { pm.getThermalHeadroom(forecastSeconds) }.getOrDefault(Float.NaN)
+    }
+
     fun decodeThreadsFor(status: Int): Int = when {
         status >= PowerManager.THERMAL_STATUS_SEVERE -> 1
         status == PowerManager.THERMAL_STATUS_MODERATE -> 2

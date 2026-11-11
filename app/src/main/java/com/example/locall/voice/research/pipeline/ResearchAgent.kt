@@ -229,6 +229,7 @@ object ResearchAgent {
             LlmBridge.generateText(
                 systemPrompt = system, userPrompt = user,
                 temperature = 0.3f, maxTokens = maxTokens, decodeThreads = decodeThreads,
+                tag = "research.qa",
             ).trim()
         } catch (t: Throwable) {
             Log.w(TAG, "runStage failed", t); ""

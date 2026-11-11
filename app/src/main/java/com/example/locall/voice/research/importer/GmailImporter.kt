@@ -44,29 +44,41 @@ class GmailImporter(context: Context) {
             val ids = GmailApi.list(token, query, max = max.coerceIn(1, 100))
             if (ids.isEmpty()) return Result.Ok(emptyList())
             val docs = ArrayList<RawDocument>(ids.size)
+            var skipped = 0
             ids.forEachIndexed { i, id ->
-                val m = repo.metadata(token, id)
-                val body = repo.body(token, id)
-                val who = EmailSummarizer.cleanFrom(m.from)
-                val subject = m.subject.ifBlank { "(no subject)" }
-                docs += RawDocument(
-                    id = "gmail:$id",
-                    title = subject,
-                    sourceType = SourceType.GMAIL,
-                    sourceRef = id,
-                    author = who,
-                    createdAtMs = m.internalDateMs,
-                    text = "From $who\nSubject: $subject\n\n${body.ifBlank { m.snippet }}",
-                )
+                try {
+                    val m = repo.metadata(token, id)
+                    val body = repo.body(token, id)
+                    val who = EmailSummarizer.cleanFrom(m.from)
+                    val subject = m.subject.ifBlank { "(no subject)" }
+                    docs += RawDocument(
+                        id = "gmail:$id",
+                        title = subject,
+                        sourceType = SourceType.GMAIL,
+                        sourceRef = id,
+                        author = who,
+                        createdAtMs = m.internalDateMs,
+                        text = "From $who\nSubject: $subject\n\n${body.ifBlank { m.snippet }}",
+                    )
+                } catch (e: GmailApi.Unauthorized) {
+                    throw e // auth failures are fatal — propagate so we can prompt a reconnect
+                } catch (t: Throwable) {
+                    skipped++
+                    Log.w(TAG, "skipping message $id: ${t.javaClass.simpleName}: ${t.message}", t)
+                }
                 onProgress(i + 1, ids.size)
             }
+            if (docs.isEmpty() && skipped > 0) {
+                return Result.Error("All $skipped message(s) failed to fetch — check the network and try again")
+            }
+            if (skipped > 0) Log.w(TAG, "imported ${docs.size}, skipped $skipped message(s)")
             Result.Ok(docs)
         } catch (e: GmailApi.Unauthorized) {
             GmailAuth.invalidate()
             Result.Error("Gmail access expired — reconnect and try again")
         } catch (t: Throwable) {
             Log.w(TAG, "import failed", t)
-            Result.Error(t.javaClass.simpleName)
+            Result.Error("${t.javaClass.simpleName}: ${t.message ?: "no detail"}")
         }
     }
 }

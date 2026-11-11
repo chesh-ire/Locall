@@ -40,6 +40,7 @@ object MessageClassifier {
             LlmBridge.generateText(
                 systemPrompt = SYSTEM, userPrompt = user,
                 temperature = 0.1f, maxTokens = 60, decodeThreads = decodeThreads,
+                tag = "inbox.classify",
             ).trim()
         } catch (t: Throwable) {
             Log.w(TAG, "classify failed", t)

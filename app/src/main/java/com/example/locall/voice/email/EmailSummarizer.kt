@@ -34,6 +34,7 @@ object EmailSummarizer {
             LlmBridge.generateText(
                 systemPrompt = SYSTEM_PROMPT, userPrompt = block,
                 temperature = 0.5f, maxTokens = 200, decodeThreads = decodeThreads,
+                tag = "email-summary.digest",
             ).trim().ifBlank { fallback(messages) }
         } catch (t: Throwable) {
             Log.w(TAG, "summarize failed, using plain fallback", t)
@@ -53,6 +54,7 @@ object EmailSummarizer {
             LlmBridge.generateText(
                 systemPrompt = ONE_SYSTEM_PROMPT, userPrompt = prompt,
                 temperature = 0.5f, maxTokens = 200, decodeThreads = decodeThreads,
+                tag = "email-summary.one",
             ).trim().ifBlank { oneFallback(from, subject, content) }
         } catch (t: Throwable) {
             Log.w(TAG, "summarizeOne failed, using plain fallback", t)

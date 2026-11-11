@@ -20,6 +20,7 @@ object LlmBridge {
     val isLoaded: Boolean get() = handle != 0L
 
     suspend fun ensureLoaded(context: Context, onStatus: (String) -> Unit = {}) {
+        PerfTrace.attach(context)
         if (isLoaded) return
         LlmModelManager.ensureExtracted(context, onStatus)
         onStatus("Loading AI model…")
@@ -28,12 +29,22 @@ object LlmBridge {
 
     val lastStats: String get() = nativeLastStats()
 
-    suspend fun generateJson(systemPrompt: String, transcript: String, decodeThreads: Int = 0): String =
-        withContext(InferenceDispatcher.dispatcher) {
+    suspend fun generateJson(
+        systemPrompt: String,
+        transcript: String,
+        decodeThreads: Int = 0,
+        tag: String = "json",
+    ): String {
+        val req = PerfTrace.request()
+        return withContext(InferenceDispatcher.dispatcher) {
             check(handle != 0L) { "call load() first" }
-            nativeGenerate(handle, systemPrompt, transcript,  true,
+            val span = PerfTrace.begin(tag, req, decodeThreads)
+            val out = nativeGenerate(handle, systemPrompt, transcript,  true,
                  0.2f,  200, decodeThreads)
+            PerfTrace.end(span, nativeLastMetrics())
+            out
         }
+    }
 
     suspend fun generateWithGrammar(
         systemPrompt: String,
@@ -42,9 +53,16 @@ object LlmBridge {
         temperature: Float = 0.2f,
         maxTokens: Int = 120,
         decodeThreads: Int = 0,
-    ): String = withContext(InferenceDispatcher.dispatcher) {
-        check(handle != 0L) { "call load()/ensureLoaded() first" }
-        nativeGenerateWithGrammar(handle, systemPrompt, userPrompt, grammar, temperature, maxTokens, decodeThreads)
+        tag: String = "grammar",
+    ): String {
+        val req = PerfTrace.request()
+        return withContext(InferenceDispatcher.dispatcher) {
+            check(handle != 0L) { "call load()/ensureLoaded() first" }
+            val span = PerfTrace.begin(tag, req, decodeThreads)
+            val out = nativeGenerateWithGrammar(handle, systemPrompt, userPrompt, grammar, temperature, maxTokens, decodeThreads)
+            PerfTrace.end(span, nativeLastMetrics())
+            out
+        }
     }
 
     suspend fun generateText(
@@ -53,19 +71,61 @@ object LlmBridge {
         temperature: Float = 0.6f,
         maxTokens: Int = 80,
         decodeThreads: Int = 0,
-    ): String = withContext(InferenceDispatcher.dispatcher) {
-        check(handle != 0L) { "call load()/ensureLoaded() first" }
-        nativeGenerate(handle, systemPrompt, userPrompt, false, temperature, maxTokens, decodeThreads)
+        tag: String = "text",
+    ): String {
+        val req = PerfTrace.request()
+        return withContext(InferenceDispatcher.dispatcher) {
+            check(handle != 0L) { "call load()/ensureLoaded() first" }
+            val span = PerfTrace.begin(tag, req, decodeThreads)
+            val out = nativeGenerate(handle, systemPrompt, userPrompt, false, temperature, maxTokens, decodeThreads)
+            PerfTrace.end(span, nativeLastMetrics())
+            out
+        }
     }
 
-    suspend fun generateReply(instruction: String, decodeThreads: Int = 0, memoryContext: String = ""): String =
-        withContext(InferenceDispatcher.dispatcher) {
+    /**
+     * Long-form generation for structured, multi-section output (e.g. labelled SUMMARY/ENTITIES/…
+     * blocks). Mirrors [generateText] but routes to [nativeGenerateLong], which does NOT stop on the
+     * first blank line — a blank line separating sections must not truncate the extraction. Keeps the
+     * EOG and header stops. Used by the chunk analyzer; callers wanting single-paragraph output that
+     * should stop at a blank line must keep using [generateText].
+     */
+    suspend fun generateStructured(
+        systemPrompt: String,
+        userPrompt: String,
+        temperature: Float = 0.3f,
+        maxTokens: Int = 320,
+        decodeThreads: Int = 0,
+        tag: String = "structured",
+    ): String {
+        val req = PerfTrace.request()
+        return withContext(InferenceDispatcher.dispatcher) {
+            check(handle != 0L) { "call load()/ensureLoaded() first" }
+            val span = PerfTrace.begin(tag, req, decodeThreads)
+            val out = nativeGenerateLong(handle, systemPrompt, userPrompt, temperature, maxTokens, decodeThreads)
+            PerfTrace.end(span, nativeLastMetrics())
+            out
+        }
+    }
+
+    suspend fun generateReply(
+        instruction: String,
+        decodeThreads: Int = 0,
+        memoryContext: String = "",
+        tag: String = "reply",
+    ): String {
+        val req = PerfTrace.request()
+        return withContext(InferenceDispatcher.dispatcher) {
             check(handle != 0L) { "call load() first" }
             val system = if (memoryContext.isEmpty()) REPLY_SYSTEM_PROMPT
                 else "$memoryContext\n$REPLY_SYSTEM_PROMPT"
-            nativeGenerate(handle, system, instruction,  false,
+            val span = PerfTrace.begin(tag, req, decodeThreads)
+            val out = nativeGenerate(handle, system, instruction,  false,
                  0.7f,  60, decodeThreads)
+            PerfTrace.end(span, nativeLastMetrics())
+            out
         }.trim()
+    }
 
     data class RawMetrics(
         val promptTokens: Int,
@@ -82,14 +142,21 @@ object LlmBridge {
         maxTokens: Int = 256,
         decodeThreads: Int = 0,
         longForm: Boolean = true,
-    ): Pair<String, RawMetrics> = withContext(InferenceDispatcher.dispatcher) {
-        check(handle != 0L) { "call load()/ensureLoaded() first" }
-        val out = if (longForm) {
-            nativeGenerateLong(handle, systemPrompt, userPrompt, temperature, maxTokens, decodeThreads)
-        } else {
-            nativeGenerate(handle, systemPrompt, userPrompt, false, temperature, maxTokens, decodeThreads)
+        tag: String = "metered",
+    ): Pair<String, RawMetrics> {
+        val req = PerfTrace.request()
+        return withContext(InferenceDispatcher.dispatcher) {
+            check(handle != 0L) { "call load()/ensureLoaded() first" }
+            val span = PerfTrace.begin(tag, req, decodeThreads)
+            val out = if (longForm) {
+                nativeGenerateLong(handle, systemPrompt, userPrompt, temperature, maxTokens, decodeThreads)
+            } else {
+                nativeGenerate(handle, systemPrompt, userPrompt, false, temperature, maxTokens, decodeThreads)
+            }
+            val csv = nativeLastMetrics()
+            PerfTrace.end(span, csv)
+            out to parseMetrics(csv)
         }
-        out to parseMetrics(nativeLastMetrics())
     }
 
     private fun parseMetrics(csv: String): RawMetrics {

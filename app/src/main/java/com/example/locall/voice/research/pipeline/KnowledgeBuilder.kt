@@ -3,6 +3,7 @@ package com.example.locall.voice.research.pipeline
 import android.content.Context
 import android.util.Log
 import com.example.locall.voice.LlmBridge
+import com.example.locall.voice.PerfTrace
 import com.example.locall.voice.research.data.ChunkEntity
 import com.example.locall.voice.research.data.ChunkInsightEntity
 import com.example.locall.voice.research.data.DocumentEntity
@@ -33,6 +34,7 @@ object KnowledgeBuilder {
         if (docs.isEmpty()) return Result(0, 0)
         onStatus("Loading AI model…")
         LlmBridge.ensureLoaded(context, onStatus)
+        PerfTrace.reset()
 
         val repo = KnowledgeRepository.get(context)
         val now = System.currentTimeMillis()
@@ -82,6 +84,7 @@ object KnowledgeBuilder {
             Log.i(TAG, "built '${doc.title}' -> ${pieces.size} chunk(s)")
             onProgress(Progress("Understanding", done, totalChunks, doc.title))
         }
+        PerfTrace.logSummary("kb-import: $savedDocs doc(s), $done chunk(s)")
         return Result(savedDocs, done)
     }
 }

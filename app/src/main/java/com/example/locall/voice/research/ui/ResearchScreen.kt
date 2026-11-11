@@ -57,7 +57,7 @@ fun ResearchScreen(modifier: Modifier = Modifier) {
                 status = "Imported ${result.documents} document(s), ${result.chunks} chunk(s)."
                 refreshDocs()
             } catch (t: Throwable) {
-                status = "Import failed: ${t.javaClass.simpleName}"
+                status = "Import failed: ${t.message ?: t.javaClass.simpleName}"
             } finally {
                 busy = false; progress = null
             }

@@ -38,6 +38,7 @@ class TaskExtractor(private val tasks: TaskManager) {
             LlmBridge.generateText(
                 systemPrompt = SYSTEM, userPrompt = user,
                 temperature = 0.2f, maxTokens = 200, decodeThreads = decodeThreads,
+                tag = "inbox.extract-tasks",
             ).trim()
         } catch (t: Throwable) {
             Log.w(TAG, "extract failed", t); return emptyList()

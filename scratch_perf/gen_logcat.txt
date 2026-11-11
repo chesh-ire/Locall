@@ -1,0 +1,22 @@
+--------- beginning of main
+         1794301909.721 28100 12384 I EmailPerf: [metered] #1 wall=10377ms queue=2ms cpu=77798ms par=7.4x thr=4 thermal=NONE headroom=0.82→0.88 | cum: n=1 wall=10377ms cpu=77798ms
+         1794301909.722 28100 28100 I InferenceMeter: [leaf 1/9] prompt=0t gen=0t prefill=0ms decode=0ms (0.0 tok/s)
+         1794301923.097 28100 12384 W EmailPerf: [metered] #2 wall=13374ms cpu=89595ms par=6.6x thr=3 thermal=LIGHT headroom=n/a→1.0 | cum: n=2 wall=23751ms cpu=167393ms
+         1794301923.097 28100 28100 I InferenceMeter: [leaf 2/9] prompt=0t gen=0t prefill=0ms decode=0ms (0.0 tok/s)
+         1794301949.327 28100 12384 W EmailPerf: [metered] #3 wall=26229ms cpu=131064ms par=4.9x thr=1 thermal=SEVERE headroom=n/a→1.03 | cum: n=3 wall=49980ms cpu=298457ms
+         1794301949.327 28100 28100 I InferenceMeter: [leaf 3/9] prompt=0t gen=0t prefill=0ms decode=0ms (0.0 tok/s)
+         1794301988.148 28100 12384 W EmailPerf: [metered] #4 wall=38819ms cpu=162894ms par=4.1x thr=1 thermal=SEVERE headroom=n/a→0.92 | cum: n=4 wall=88799ms cpu=461351ms
+         1794301988.148 28100 28100 I InferenceMeter: [leaf 4/9] prompt=0t gen=0t prefill=0ms decode=0ms (0.0 tok/s)
+         1794302003.012 28100 12384 W EmailPerf: [metered] #5 wall=14863ms cpu=110672ms par=7.4x thr=1 thermal=SEVERE headroom=n/a→1.09 | cum: n=5 wall=103662ms cpu=572023ms
+         1794302003.012 28100 28100 I InferenceMeter: [leaf 5/9] prompt=0t gen=0t prefill=0ms decode=0ms (0.0 tok/s)
+         1794302026.891 28100 12384 W EmailPerf: [metered] #6 wall=23877ms cpu=135397ms par=5.6x thr=1 thermal=SEVERE headroom=n/a→1.04 | cum: n=6 wall=127539ms cpu=707420ms
+         1794302026.892 28100 28100 I InferenceMeter: [leaf 6/9] prompt=0t gen=0t prefill=0ms decode=0ms (0.0 tok/s)
+         1794302062.977 28100 12384 W EmailPerf: [metered] #7 wall=36084ms cpu=93586ms par=2.5x thr=1 thermal=SEVERE headroom=n/a→0.96 tok: p=842 g=107 prefill=19675ms decode=16402ms (6.5 tok/s) rss=1817MB | cum: n=7 wall=163623ms cpu=801006ms
+         1794302062.978 28100 28100 I InferenceMeter: [leaf 7/9] prompt=842t gen=107t prefill=19675ms decode=16402ms (6.5 tok/s)
+         1794302109.823 28100 12384 W EmailPerf: [metered] #8 wall=46843ms cpu=118376ms par=2.5x thr=1 thermal=SEVERE headroom=n/a→1.04 tok: p=1548 g=220 prefill=19285ms decode=27551ms (7.9 tok/s) rss=1817MB | cum: n=8 wall=210466ms cpu=919382ms
+         1794302109.823 28100 28100 I InferenceMeter: [leaf 8/9] prompt=1548t gen=220t prefill=19285ms decode=27551ms (8.0 tok/s)
+         1794302147.032 28100 12384 W EmailPerf: [metered] #9 wall=37207ms cpu=73520ms par=1.9x thr=1 thermal=SEVERE headroom=n/a→0.96 tok: p=539 g=220 prefill=12292ms decode=24912ms (8.8 tok/s) rss=1822MB | cum: n=9 wall=247673ms cpu=992902ms
+         1794302147.032 28100 28100 I InferenceMeter: [leaf 9/9] prompt=539t gen=220t prefill=12292ms decode=24912ms (8.8 tok/s)
+         1794302182.635 28100 12384 W EmailPerf: [metered] #10 wall=35600ms cpu=56437ms par=1.5x thr=1 thermal=SEVERE headroom=n/a→1.06 tok: p=646 g=512 prefill=2467ms decode=33130ms (15.4 tok/s) rss=1826MB | cum: n=10 wall=283273ms cpu=1049339ms
+         1794302182.635 28100 28100 I InferenceMeter: [merge L1 1/1] prompt=646t gen=512t prefill=2467ms decode=33130ms (15.5 tok/s)
+         1794302182.646 28100 28100 I BenchRunner: run RECURSIVE_SUMMARISATION: 10 calls, 283320ms, 10.4 tok/s, peak 1825MB

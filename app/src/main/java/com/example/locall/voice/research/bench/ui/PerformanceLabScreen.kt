@@ -16,12 +16,17 @@ import androidx.compose.ui.unit.dp
 import com.example.locall.ui.components.BrandHeader
 import com.example.locall.voice.research.bench.BenchConfig
 import com.example.locall.voice.research.bench.BenchRunner
+import com.example.locall.voice.research.bench.ColdSingleShot
 import com.example.locall.voice.research.bench.InferenceRecord
 import com.example.locall.voice.research.bench.WorkflowRun
 import com.example.locall.voice.research.bench.WorkloadType
 import com.example.locall.voice.research.bench.data.BenchRepository
 import com.example.locall.voice.research.bench.data.BenchRunEntity
 import com.example.locall.voice.research.bench.workloads.DeepResearch
+import com.example.locall.voice.research.chunkperf.ChunkPerfCompare
+import com.example.locall.voice.research.chunkperf.ChunkPerfConfig
+import com.example.locall.voice.research.chunkperf.ChunkPerfRunner
+import com.example.locall.voice.research.chunkperf.data.ChunkPerfRepository
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -39,14 +44,15 @@ fun PerformanceLabScreen(modifier: Modifier = Modifier) {
             selectedTabIndex = tab,
             containerColor = MaterialTheme.colorScheme.background,
         ) {
-            listOf("Run", "History").forEachIndexed { i, label ->
+            listOf("Run", "History", "105-Chunk").forEachIndexed { i, label ->
                 Tab(selected = tab == i, onClick = { tab = i }, text = { Text(label) })
             }
         }
         HorizontalDivider()
         when (tab) {
             0 -> RunTab()
-            else -> HistoryTab()
+            1 -> HistoryTab()
+            else -> ChunkPerfTab()
         }
     }
 }
@@ -72,6 +78,8 @@ private fun RunTab() {
 
     var evidence by remember { mutableStateOf<List<DeepResearch.Evidence>>(emptyList()) }
     var followUp by remember { mutableStateOf("") }
+
+    var coldResult by remember { mutableStateOf<ColdSingleShot.Result?>(null) }
 
     fun config() = BenchConfig(
         chunkCount = chunkCount.toInt(),
@@ -144,8 +152,24 @@ private fun RunTab() {
             }
         }
 
+        LabCard("Cold single-shot (peak probe)") {
+            Text(
+                "One standalone generation (~${ColdSingleShot.MAX_TOKENS} tok, fixed prompt, no " +
+                    "retrieval), then stops. Run from thermal status 0 to capture cold peak " +
+                    "prefill/decode. Metrics also go to logcat tag \"ColdShot\".",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(12.dp))
+            Button(
+                enabled = !busy,
+                onClick = { launch { coldResult = ColdSingleShot.run(context) } },
+            ) { Text("Run cold single-shot") }
+        }
+
         if (busy) LiveProgressCard(progress)
         error?.let { ErrorCard(it) }
+
+        coldResult?.let { ColdShotCard(it) }
 
         lastRun?.let { run ->
             ResultCard(run)
@@ -171,6 +195,112 @@ private fun RunTab() {
                     ) { Text("Ask follow-up") }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ChunkPerfTab() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var busy by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf("Idle. One tap runs all 105 chunks, auto-cooling as needed.") }
+    var output by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    fun runSession(config: ChunkPerfConfig) {
+        if (busy) return
+        busy = true; error = null
+        scope.launch {
+            try {
+                val result = ChunkPerfRunner.runSession(context, config) { p ->
+                    status = "${p.completed}/${p.total} done · chunk #${p.index} · thermal ${p.thermalName}" +
+                        (p.last?.let { " · ${fmt1(it.decodeTokPerSec)} t/s" } ?: "") +
+                        (if (p.paused) " · PAUSED (${p.note})" else "")
+                }
+                output = when (result) {
+                    is ChunkPerfRunner.SessionResult.Completed -> result.report.describe()
+                    is ChunkPerfRunner.SessionResult.Paused ->
+                        "Session paused: ${result.reason}\nProgress: ${result.completed}/${ChunkPerfRunner.TOTAL}\n" +
+                            "Tap the same button again to resume from the next unfinished chunk."
+                }
+                status = "Done this session."
+            } catch (t: Throwable) {
+                error = t.message ?: t.javaClass.simpleName
+            } finally { busy = false }
+        }
+    }
+
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        LabCard("105-Chunk Analysis") {
+            Text(
+                "Runs a frozen 105-chunk corpus through the single on-device model. One tap processes " +
+                    "all remaining chunks, automatically waiting to cool whenever the device overheats " +
+                    "(keep the app in the foreground). Progress persists across restarts; if killed, tap " +
+                    "again to resume from the next unfinished chunk. Full numbers print to logcat (tag " +
+                    "ChunkPerf) and appear below on completion.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    enabled = !busy,
+                    onClick = { runSession(ChunkPerfConfig.baseline()) },
+                ) { Text("Baseline session") }
+                OutlinedButton(
+                    enabled = !busy,
+                    onClick = { runSession(ChunkPerfConfig.optimized()) },
+                ) { Text("Optimized session") }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    enabled = !busy,
+                    onClick = {
+                        scope.launch {
+                            val repo = ChunkPerfRepository.get(context)
+                            output = repo.latestCompleted("baseline")?.let { repo.reportText(it.id) }
+                                ?: "No completed baseline run yet."
+                        }
+                    },
+                ) { Text("Show report") }
+                OutlinedButton(
+                    enabled = !busy,
+                    onClick = {
+                        scope.launch {
+                            output = ChunkPerfCompare.compareLatest(context)
+                                ?: "Need a completed baseline AND optimized run to compare."
+                        }
+                    },
+                ) { Text("Compare") }
+            }
+        }
+
+        if (busy) {
+            ElevatedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Running…", style = MaterialTheme.typography.titleSmall)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(status, style = MaterialTheme.typography.bodySmall)
+                    LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
+                }
+            }
+        } else {
+            Text(status, style = MaterialTheme.typography.labelMedium)
+        }
+
+        error?.let { ErrorCard(it) }
+
+        if (output.isNotBlank()) {
+            LabCard("Result") { MonoBlock(output, maxHeight = 480) }
         }
     }
 }
@@ -254,6 +384,31 @@ private fun LiveProgressCard(progress: BenchRunner.Progress?) {
                 modifier = Modifier.padding(top = 6.dp),
             )
         }
+    }
+}
+
+@Composable
+private fun ColdShotCard(r: ColdSingleShot.Result) {
+    LabCard("Cold single-shot — result") {
+        MetricGrid(
+            "prefill" to "${fmt0(r.prefillMs)}ms",
+            "prefill t/s" to fmt1(r.prefillTokPerSec),
+            "decode" to "${fmt0(r.decodeMs)}ms",
+            "decode t/s" to fmt1(r.decodeTokPerSec),
+            "prompt tok" to "${r.promptTokens}",
+            "gen tok" to "${r.generatedTokens}",
+            "wall" to "${fmt1(r.wallMs / 1000.0)}s",
+            "threads" to "${r.decodeThreads}",
+            "par" to "${fmt1(r.par)}x",
+            "cpu" to "${fmt1(r.cpuMsDelta / 1000.0)}s",
+            "thermal" to "${r.thermalStart}→${r.thermalEnd}",
+            "temp °C" to "${fmt1(r.tempStartC.toDouble())}→${fmt1(r.tempEndC.toDouble())}",
+            "headroom" to "${fmt2(r.headroomStart)}→${fmt2(r.headroomEnd)}",
+            "charge Δ" to "${r.chargeUahDelta} µAh",
+            "peak RAM" to "${r.rssMb} MB",
+        )
+        Spacer(Modifier.height(8.dp))
+        MonoBlock(r.text)
     }
 }
 
@@ -447,6 +602,7 @@ private val dateFmt = SimpleDateFormat("MMM d, HH:mm", Locale.US)
 
 private fun fmt0(d: Double) = "%.0f".format(d)
 private fun fmt1(d: Double) = "%.1f".format(d)
+private fun fmt2(f: Float) = if (f.isNaN()) "n/a" else "%.2f".format(f)
 
 private fun WorkloadType.defaultFor(): String =
     com.example.locall.voice.research.bench.workloads.Workload.defaultInput(this)

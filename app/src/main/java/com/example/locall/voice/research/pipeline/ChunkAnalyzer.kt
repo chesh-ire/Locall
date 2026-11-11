@@ -15,7 +15,7 @@ private const val TAG = "ChunkAnalyzer"
  */
 object ChunkAnalyzer {
 
-    private const val MAX_TOKENS = 220
+    private const val MAX_TOKENS = 320
 
     data class Analysis(
         val summary: String,
@@ -42,12 +42,13 @@ object ChunkAnalyzer {
     suspend fun analyze(context: Context, chunkText: String): Analysis {
         val decodeThreads = ThermalGovernor.decodeThreads(context)
         return try {
-            val raw = LlmBridge.generateText(
+            val raw = LlmBridge.generateStructured(
                 systemPrompt = SYSTEM_PROMPT,
                 userPrompt = chunkText,
                 temperature = 0.3f,
                 maxTokens = MAX_TOKENS,
                 decodeThreads = decodeThreads,
+                tag = "kb-import.chunk",
             )
             parse(raw) ?: fallback(chunkText)
         } catch (t: Throwable) {

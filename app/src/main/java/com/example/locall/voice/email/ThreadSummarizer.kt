@@ -117,6 +117,7 @@ object ThreadSummarizer {
             LlmBridge.generateText(
                 systemPrompt = MAP_SYSTEM_PROMPT, userPrompt = chunkText,
                 temperature = 0.4f, maxTokens = MAP_MAX_TOKENS, decodeThreads = decodeThreads,
+                tag = "email-thread.map",
             ).trim().ifBlank { chunkText.take(400) }
         } catch (t: Throwable) {
             Log.w(TAG, "mapChunk failed, using raw excerpt", t)
@@ -165,6 +166,7 @@ object ThreadSummarizer {
             val raw = LlmBridge.generateText(
                 systemPrompt = MERGE_SYSTEM_PROMPT, userPrompt = userPrompt,
                 temperature = 0.4f, maxTokens = MERGE_MAX_TOKENS, decodeThreads = decodeThreads,
+                tag = "email-thread.synth",
             )
             Log.i(TAG, "synthesize -> ${LlmBridge.lastStats}")
             parseStructured(raw) ?: ThreadSummary(raw.trim().ifBlank { fallback(fallbackMsgs) })
@@ -187,6 +189,7 @@ object ThreadSummarizer {
             LlmBridge.generateText(
                 systemPrompt = CONDENSE_SYSTEM_PROMPT, userPrompt = joined,
                 temperature = 0.4f, maxTokens = MAP_MAX_TOKENS, decodeThreads = decodeThreads,
+                tag = "email-thread.condense",
             ).trim().ifBlank { joined.take(600) }
         } catch (t: Throwable) {
             Log.w(TAG, "condense failed, using raw", t)
