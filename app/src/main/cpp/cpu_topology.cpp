@@ -58,7 +58,7 @@ CpuTopology detect_cpu_topology() {
     if (topo.efficiency_cores.empty()) topo.efficiency_cores = topo.performance_cores;
 
     int perf = (int) topo.performance_cores.size();
-    topo.suggested_decode_threads = std::min(perf, 4);
+    topo.suggested_decode_threads = std::min(perf, 3);
     topo.suggested_batch_threads = perf;
 
     LOGI("cores=%d perf_cluster=%d decode=%d batch=%d",
