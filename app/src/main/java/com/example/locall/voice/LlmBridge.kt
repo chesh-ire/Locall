@@ -199,6 +199,50 @@ object LlmBridge {
         benchHandle, systemPrompt, userPrompt, maxTokens, decodeThreads, batchThreads, affinityCores,
     )
 
+    /**
+     * Dormant benchmark-only PACED decode. Mirrors [generateBenchmark] but sleeps [pauseMs] ms after
+     * every [pauseEveryK] generated tokens (0 for either ⇒ no pauses). Returns CSV
+     * "prefill_ms,decode_ms,generated,rss_kb,slept_ms" where decode_ms INCLUDES the sleeps and slept_ms
+     * is reported separately. Production inference is untouched; used only by [research.bench] harnesses.
+     */
+    fun generateBenchmarkPaced(
+        benchHandle: Long,
+        systemPrompt: String,
+        userPrompt: String,
+        maxTokens: Int,
+        decodeThreads: Int,
+        batchThreads: Int,
+        affinityCores: IntArray,
+        pauseEveryK: Int,
+        pauseMs: Int,
+    ): String = nativeGenerateBenchmarkPaced(
+        benchHandle, systemPrompt, userPrompt, maxTokens, decodeThreads, batchThreads, affinityCores,
+        pauseEveryK, pauseMs,
+    )
+
+    /**
+     * Dormant benchmark-only ADAPTIVE paced decode. Sleeps [pauseMs] ms only when, checked every
+     * [checkEveryK] generated tokens, scaling_max_freq across the pinned cores has dropped below
+     * [clampThresholdKhz] (the DVFS clamp has engaged) — so cool requests run untaxed and pacing
+     * self-engages under heat. Returns CSV "prefill_ms,decode_ms,generated,rss_kb,slept_ms" with a
+     * variable slept_ms. Production inference is untouched; used only by [research.bench] harnesses.
+     */
+    fun generateBenchmarkAdaptive(
+        benchHandle: Long,
+        systemPrompt: String,
+        userPrompt: String,
+        maxTokens: Int,
+        decodeThreads: Int,
+        batchThreads: Int,
+        affinityCores: IntArray,
+        checkEveryK: Int,
+        pauseMs: Int,
+        clampThresholdKhz: Long,
+    ): String = nativeGenerateBenchmarkAdaptive(
+        benchHandle, systemPrompt, userPrompt, maxTokens, decodeThreads, batchThreads, affinityCores,
+        checkEveryK, pauseMs, clampThresholdKhz,
+    )
+
     val handleForBenchmark: Long get() = handle
 
     fun countTokens(benchHandle: Long, systemPrompt: String, userPrompt: String): Int =
@@ -254,5 +298,28 @@ object LlmBridge {
         decodeThreads: Int,
         batchThreads: Int,
         affinityCores: IntArray,
+    ): String
+    private external fun nativeGenerateBenchmarkPaced(
+        handle: Long,
+        systemPrompt: String,
+        userPrompt: String,
+        maxTokens: Int,
+        decodeThreads: Int,
+        batchThreads: Int,
+        affinityCores: IntArray,
+        pauseEveryK: Int,
+        pauseMs: Int,
+    ): String
+    private external fun nativeGenerateBenchmarkAdaptive(
+        handle: Long,
+        systemPrompt: String,
+        userPrompt: String,
+        maxTokens: Int,
+        decodeThreads: Int,
+        batchThreads: Int,
+        affinityCores: IntArray,
+        checkEveryK: Int,
+        pauseMs: Int,
+        clampThresholdKhz: Long,
     ): String
 }

@@ -16,7 +16,14 @@ import androidx.compose.ui.unit.dp
 import com.example.locall.ui.components.BrandHeader
 import com.example.locall.voice.research.bench.BenchConfig
 import com.example.locall.voice.research.bench.BenchRunner
+import com.example.locall.voice.research.bench.BenchmarkRunState
+import com.example.locall.voice.research.bench.BenchmarkService
 import com.example.locall.voice.research.bench.ColdSingleShot
+import com.example.locall.voice.research.bench.DecodeThreadSweep
+import com.example.locall.voice.research.bench.PacedDecodeCompare
+import com.example.locall.voice.research.bench.PrefillThreadSweep
+import com.example.locall.voice.research.bench.SustainedDecodeCompare
+import com.example.locall.voice.research.bench.SustainedPrefillCapCompare
 import com.example.locall.voice.research.bench.InferenceRecord
 import com.example.locall.voice.research.bench.WorkflowRun
 import com.example.locall.voice.research.bench.WorkloadType
@@ -80,6 +87,13 @@ private fun RunTab() {
     var followUp by remember { mutableStateOf("") }
 
     var coldResult by remember { mutableStateOf<ColdSingleShot.Result?>(null) }
+    var sweepReport by remember { mutableStateOf<String?>(null) }
+    var sweepProgress by remember { mutableStateOf<String?>(null) }
+    // Background-benchmark state, owned by BenchmarkService (survives screen-off / backgrounding).
+    val bgRunning by BenchmarkRunState.running.collectAsState()
+    val bgKind by BenchmarkRunState.kind.collectAsState()
+    val bgProgress by BenchmarkRunState.progress.collectAsState()
+    val bgReport by BenchmarkRunState.report.collectAsState()
 
     fun config() = BenchConfig(
         chunkCount = chunkCount.toInt(),
@@ -166,8 +180,155 @@ private fun RunTab() {
             ) { Text("Run cold single-shot") }
         }
 
-        if (busy) LiveProgressCard(progress)
+        LabCard("Prefill thread sweep (Stage 1)") {
+            Text(
+                "Sweeps prefill threads 2/4/6/8 (decode fixed) over 8 real corpus chunks each, " +
+                    "cold start per config, pinned to the fastest N cores. Finds the best sustained " +
+                    "prefill config before throttling. ~40 generations + cooldowns; logcat tag " +
+                    "\"ThreadSweep\", CSV in filesDir/perf/.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(12.dp))
+            Button(
+                enabled = !busy,
+                onClick = {
+                    launch {
+                        sweepReport = null
+                        val r = PrefillThreadSweep.run(context) { sweepProgress = it }
+                        sweepProgress = null
+                        sweepReport = PrefillThreadSweep.report(r)
+                    }
+                },
+            ) { Text("Run prefill thread sweep") }
+        }
+
+        LabCard("Decode thread sweep (Stage 2)") {
+            Text(
+                "Sweeps decode threads ${DecodeThreadSweep.decodeConfigsLabel()} (batch fixed) over a " +
+                    "fixed short prompt, maxTok=${DecodeThreadSweep.MAX_TOKENS}, ${DecodeThreadSweep.REPS} " +
+                    "reps/config, cold start each, pinned to the production perf-core domain. Boosts the " +
+                    "dispatcher to nice ${DecodeThreadSweep.DECODE_NICE} for production priority parity — " +
+                    "ABORTS (no run) if that priority can't be set. Compares decode tok/s, whole-call " +
+                    "CPU-work/token, frequency, and temperature. Logcat tag \"${DecodeThreadSweep.TAG}\", " +
+                    "CSV in filesDir/perf/.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(12.dp))
+            Button(
+                enabled = !busy && !bgRunning,
+                onClick = { BenchmarkService.start(context, BenchmarkRunState.Kind.DECODE_SWEEP) },
+            ) { Text("Run decode thread sweep") }
+        }
+
+        LabCard("Sustained decode compare — ${SustainedDecodeCompare.configsLabel()} threads (validate 3→prod)") {
+            Text(
+                "Validates the production 4→3 decode-thread change under SUSTAINED load. Compares " +
+                    "${SustainedDecodeCompare.configsLabel()} decode threads over ${SustainedDecodeCompare.MAX_TOKENS}-tok " +
+                    "generations, ${SustainedDecodeCompare.SEQ_REQUESTS} back-to-back per block (no cooldown within, so " +
+                    "heat climbs), ${SustainedDecodeCompare.ROUNDS} rounds with order alternated. Reports throughput " +
+                    "retention (first→last), CPU-work/token, peak temp, thermal status, and cpufreq clamp. " +
+                    "Priority-parity gated (ABORTS if nice can't be set). Logcat tag " +
+                    "\"${SustainedDecodeCompare.TAG}\", CSV in filesDir/perf/.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(12.dp))
+            Button(
+                enabled = !busy && !bgRunning,
+                onClick = { BenchmarkService.start(context, BenchmarkRunState.Kind.SUSTAINED_COMPARE) },
+            ) { Text("Run sustained 3-vs-4 compare") }
+        }
+
+        LabCard("Paced decode compare — ${PacedDecodeCompare.configsLabel()} (Stage 3: duty cycling)") {
+            Text(
+                "Bench-only A/B of thermal-aware duty cycling: inserts short idle windows between safe " +
+                    "generation segments (a sleep every K tokens, via the dormant paced JNI path) vs running " +
+                    "decode flat out, at the production decode-thread default. ${PacedDecodeCompare.SEQ_REQUESTS} " +
+                    "back-to-back ${PacedDecodeCompare.MAX_TOKENS}-tok generations per block (heat climbs), " +
+                    "${PacedDecodeCompare.ROUNDS} rounds, order alternated. Reports END-TO-END tok/s (counts the " +
+                    "sleeps) vs active tok/s, throttle onset off scaling_max_freq, retention, CPU-work/token, and " +
+                    "peak temp. Priority-parity gated (ABORTS if nice can't be set). Logcat tag " +
+                    "\"${PacedDecodeCompare.TAG}\", CSV in filesDir/perf/.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(12.dp))
+            Button(
+                enabled = !busy && !bgRunning,
+                onClick = { BenchmarkService.start(context, BenchmarkRunState.Kind.PACED_COMPARE) },
+            ) { Text("Run paced decode compare") }
+        }
+
+        LabCard("Prefill-cap compare — ${SustainedPrefillCapCompare.configsLabel()} (device-heating prototype)") {
+            Text(
+                "PROTOTYPE of the prefill-thread cap — the prefill analog of the sustained decode compare. " +
+                    "On this Snapdragon 8 Elite, production prefill races all 8 Oryon cores; this tests whether " +
+                    "capping prefill to fewer of the fastest cores (${SustainedPrefillCapCompare.CAP_THREADS.joinToString(", ")}) " +
+                    "keeps the device OUT of the SEVERE/CRITICAL \"abnormal\" state. Prefill-heavy (real chunks, tiny " +
+                    "decode=${SustainedPrefillCapCompare.MAX_TOKENS} tok so decode can't confound), " +
+                    "${SustainedPrefillCapCompare.SEQ_REQUESTS} back-to-back per block (no cooldown within, so " +
+                    "heat climbs), ${SustainedPrefillCapCompare.ROUNDS} rounds order-alternated. Headlines on " +
+                    "peak temp, worst thermal status, and how soon SEVERE first appears. Priority-parity gated " +
+                    "(ABORTS if nice can't be set); production native path untouched. Logcat tag " +
+                    "\"${SustainedPrefillCapCompare.TAG}\", CSV in filesDir/perf/.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(12.dp))
+            Button(
+                enabled = !busy && !bgRunning,
+                onClick = { BenchmarkService.start(context, BenchmarkRunState.Kind.PREFILL_CAP_COMPARE) },
+            ) { Text("Run prefill-cap compare") }
+        }
+
+        // Generic bench spinner is meaningless during a sweep (it never feeds `progress`),
+        // so show the sweep's own live status instead.
+        if (busy && sweepProgress == null) LiveProgressCard(progress)
+        sweepProgress?.let { s ->
+            ElevatedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Thread sweep", style = MaterialTheme.typography.titleSmall)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(s, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
         error?.let { ErrorCard(it) }
+
+        sweepReport?.let { rep ->
+            LabCard("Prefill thread sweep result") {
+                Text(rep, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+            }
+        }
+
+        if (bgRunning) {
+            ElevatedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "${bgKind?.label ?: "Benchmark"} — running in background",
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(bgProgress ?: "Working…", style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Keeps running with the screen off — safe to leave this screen. Don't tap Run again.",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+            }
+        }
+
+        bgReport?.let { rep ->
+            LabCard("${bgKind?.label ?: "Benchmark"} result") {
+                Text(rep, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+            }
+        }
 
         coldResult?.let { ColdShotCard(it) }
 

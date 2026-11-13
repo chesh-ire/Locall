@@ -6,6 +6,7 @@
 #include <cstring>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 #include <android/log.h>
 
@@ -93,6 +94,26 @@ std::string token_to_piece(const llama_vocab *vocab, llama_token tok) {
     int n = llama_token_to_piece(vocab, tok, buf, sizeof(buf), 0, false);
     if (n < 0) return "";
     return {buf, static_cast<size_t>(n)};
+}
+
+long read_scaling_max_khz(int cpu) {
+    char path[128];
+    snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%d/cpufreq/scaling_max_freq", cpu);
+    FILE *f = fopen(path, "r");
+    if (!f) return -1;
+    long khz = -1;
+    if (fscanf(f, "%ld", &khz) != 1) khz = -1;
+    fclose(f);
+    return khz;
+}
+
+long max_scaling_max_khz(const std::vector<int> &cores) {
+    long m = -1;
+    for (int c : cores) {
+        long v = read_scaling_max_khz(c);
+        if (v > m) m = v;
+    }
+    return m;
 }
 
 long read_vmrss_kb() {
@@ -439,6 +460,185 @@ Java_com_example_locall_voice_LlmBridge_nativeGenerateBenchmark(
 
     char buf[128];
     snprintf(buf, sizeof(buf), "%.1f,%.1f,%d,%ld", prefill_ms, decode_ms, generated, rss_kb);
+    return env->NewStringUTF(buf);
+}
+
+/**
+ * Benchmark-only PACED decode: identical to [nativeGenerateBenchmark] except that, after every
+ * `pauseEveryK` generated tokens, the calling thread sleeps for `pauseMs` milliseconds. The sleep sits
+ * at a token boundary — after `llama_decode` returns, so the KV cache and sampler are fully consistent;
+ * it never interrupts a decode mid-flight, so the output is byte-identical to the unpaced path (same
+ * seed, same sampler, same KV). This is the dormant mechanism for Route A ("thermal-aware duty cycling":
+ * give the Oryon cores idle windows between safe segments so the SoC heats slower / throttles later).
+ *
+ * Because this build is GGML_OPENMP OFF with no attached threadpool, ggml spawns its worker pool INSIDE
+ * each `llama_decode` on this thread and tears it down on return — so during the sleep there are no live
+ * compute threads at all, and the idle window genuinely sheds power.
+ *
+ * `pauseEveryK <= 0` or `pauseMs <= 0` ⇒ no pauses (equivalent to the unpaced benchmark, but still via
+ * this function so the paced/unpaced A/B runs on exactly the same code path).
+ *
+ * Returns CSV "prefill_ms,decode_ms,generated,rss_kb,slept_ms". `decode_ms` INCLUDES the sleeps
+ * (user-visible / end-to-end), and `slept_ms` is reported separately so the caller can recover the
+ * active (compute-only) decode time as decode_ms - slept_ms. Production inference is untouched.
+ */
+JNIEXPORT jstring JNICALL
+Java_com_example_locall_voice_LlmBridge_nativeGenerateBenchmarkPaced(
+        JNIEnv *env, jobject,
+        jlong handle, jstring systemPrompt, jstring userPrompt,
+        jint maxTokens, jint decodeThreads, jint batchThreads, jintArray affinityCores,
+        jint pauseEveryK, jint pauseMs) {
+    auto *session = reinterpret_cast<LlmSession *>(handle);
+    if (!session) return env->NewStringUTF("0,0,0,0,0");
+
+    jsize n_cores = env->GetArrayLength(affinityCores);
+    jint *core_elems = env->GetIntArrayElements(affinityCores, nullptr);
+    std::vector<int> cores(core_elems, core_elems + n_cores);
+    env->ReleaseIntArrayElements(affinityCores, core_elems, JNI_ABORT);
+
+    bool pinned = pin_current_thread_to(cores);
+    llama_set_n_threads(session->ctx, decodeThreads, batchThreads);
+    LOGI("benchmark-paced: pinned=%d decode_threads=%d batch_threads=%d cores=%d pauseEveryK=%d pauseMs=%d",
+         pinned, decodeThreads, batchThreads, n_cores, pauseEveryK, pauseMs);
+
+    const char *sys_chars = env->GetStringUTFChars(systemPrompt, nullptr);
+    const char *user_chars = env->GetStringUTFChars(userPrompt, nullptr);
+    std::string prompt = format_prompt(sys_chars, user_chars);
+    env->ReleaseStringUTFChars(systemPrompt, sys_chars);
+    env->ReleaseStringUTFChars(userPrompt, user_chars);
+
+    std::vector<llama_token> tokens = tokenize(session->vocab, prompt);
+
+    llama_memory_clear(llama_get_memory(session->ctx), true);
+
+    auto t_start = std::chrono::steady_clock::now();
+    llama_batch prefill = llama_batch_get_one(tokens.data(), (int32_t) tokens.size());
+    if (llama_decode(session->ctx, prefill) != 0) {
+        LOGW("benchmark-paced: prefill decode failed");
+        return env->NewStringUTF("0,0,0,0,0");
+    }
+    auto t_prefill_done = std::chrono::steady_clock::now();
+
+    llama_sampler_chain_params sparams = llama_sampler_chain_default_params();
+    llama_sampler *smpl = llama_sampler_chain_init(sparams);
+    llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.2f));
+    llama_sampler_chain_add(smpl, llama_sampler_init_dist(0));
+
+    int generated = 0;
+    double slept_ms = 0.0;
+    for (int i = 0; i < maxTokens; i++) {
+        llama_token next = llama_sampler_sample(smpl, session->ctx, -1);
+        if (llama_vocab_is_eog(session->vocab, next)) break;
+        generated++;
+        llama_batch step = llama_batch_get_one(&next, 1);
+        if (llama_decode(session->ctx, step) != 0) break;
+
+        // Duty-cycle pause at a safe token boundary (KV + sampler consistent after the decode above).
+        if (pauseEveryK > 0 && pauseMs > 0 && generated % pauseEveryK == 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(pauseMs));
+            slept_ms += pauseMs;
+        }
+    }
+    auto t_decode_done = std::chrono::steady_clock::now();
+    llama_sampler_free(smpl);
+
+    double prefill_ms = std::chrono::duration<double, std::milli>(t_prefill_done - t_start).count();
+    double decode_ms = std::chrono::duration<double, std::milli>(t_decode_done - t_prefill_done).count();
+    long rss_kb = read_vmrss_kb();
+
+    char buf[160];
+    snprintf(buf, sizeof(buf), "%.1f,%.1f,%d,%ld,%.1f", prefill_ms, decode_ms, generated, rss_kb, slept_ms);
+    return env->NewStringUTF(buf);
+}
+
+/**
+ * Benchmark-only ADAPTIVE paced decode: like [nativeGenerateBenchmarkPaced], but instead of a fixed
+ * duty cycle it sleeps [pauseMs] ONLY when the SoC is actually throttling — every [checkEveryK] generated
+ * tokens it reads scaling_max_freq across the pinned cores and pauses only if the max has dropped below
+ * [clampThresholdKhz] (i.e. the DVFS clamp has engaged). When the device is cool the clamp sits at the
+ * cold ceiling, the check passes, and NO sleep is inserted — so cool/early requests run flat out with no
+ * tax, and pacing self-engages only as heat builds. This is the Route A design intended for LocaLL:
+ * preserve the thermal-stability win of pacing without paying the fixed sleep tax on requests that don't
+ * need it.
+ *
+ * The sysfs read (one open/scan/close per pinned core, every checkEveryK tokens) is cheap relative to a
+ * decode step. The pause sits at a token boundary (after llama_decode), so KV + sampler stay consistent
+ * and output is byte-identical to unpaced. `clampThresholdKhz <= 0` or `pauseMs <= 0` ⇒ never pauses.
+ *
+ * Returns CSV "prefill_ms,decode_ms,generated,rss_kb,slept_ms"; slept_ms is the (variable) total pause
+ * time, so the caller can separate active vs end-to-end throughput. Production inference is untouched.
+ */
+JNIEXPORT jstring JNICALL
+Java_com_example_locall_voice_LlmBridge_nativeGenerateBenchmarkAdaptive(
+        JNIEnv *env, jobject,
+        jlong handle, jstring systemPrompt, jstring userPrompt,
+        jint maxTokens, jint decodeThreads, jint batchThreads, jintArray affinityCores,
+        jint checkEveryK, jint pauseMs, jlong clampThresholdKhz) {
+    auto *session = reinterpret_cast<LlmSession *>(handle);
+    if (!session) return env->NewStringUTF("0,0,0,0,0");
+
+    jsize n_cores = env->GetArrayLength(affinityCores);
+    jint *core_elems = env->GetIntArrayElements(affinityCores, nullptr);
+    std::vector<int> cores(core_elems, core_elems + n_cores);
+    env->ReleaseIntArrayElements(affinityCores, core_elems, JNI_ABORT);
+
+    bool pinned = pin_current_thread_to(cores);
+    llama_set_n_threads(session->ctx, decodeThreads, batchThreads);
+    LOGI("benchmark-adaptive: pinned=%d decode_threads=%d batch_threads=%d cores=%d checkEveryK=%d "
+         "pauseMs=%d clampThresholdKhz=%ld",
+         pinned, decodeThreads, batchThreads, n_cores, checkEveryK, pauseMs, (long) clampThresholdKhz);
+
+    const char *sys_chars = env->GetStringUTFChars(systemPrompt, nullptr);
+    const char *user_chars = env->GetStringUTFChars(userPrompt, nullptr);
+    std::string prompt = format_prompt(sys_chars, user_chars);
+    env->ReleaseStringUTFChars(systemPrompt, sys_chars);
+    env->ReleaseStringUTFChars(userPrompt, user_chars);
+
+    std::vector<llama_token> tokens = tokenize(session->vocab, prompt);
+
+    llama_memory_clear(llama_get_memory(session->ctx), true);
+
+    auto t_start = std::chrono::steady_clock::now();
+    llama_batch prefill = llama_batch_get_one(tokens.data(), (int32_t) tokens.size());
+    if (llama_decode(session->ctx, prefill) != 0) {
+        LOGW("benchmark-adaptive: prefill decode failed");
+        return env->NewStringUTF("0,0,0,0,0");
+    }
+    auto t_prefill_done = std::chrono::steady_clock::now();
+
+    llama_sampler_chain_params sparams = llama_sampler_chain_default_params();
+    llama_sampler *smpl = llama_sampler_chain_init(sparams);
+    llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.2f));
+    llama_sampler_chain_add(smpl, llama_sampler_init_dist(0));
+
+    int generated = 0;
+    double slept_ms = 0.0;
+    bool can_pause = pauseMs > 0 && clampThresholdKhz > 0 && checkEveryK > 0;
+    for (int i = 0; i < maxTokens; i++) {
+        llama_token next = llama_sampler_sample(smpl, session->ctx, -1);
+        if (llama_vocab_is_eog(session->vocab, next)) break;
+        generated++;
+        llama_batch step = llama_batch_get_one(&next, 1);
+        if (llama_decode(session->ctx, step) != 0) break;
+
+        // Adaptive pause: only when the DVFS clamp has engaged (scaling_max_freq below threshold).
+        if (can_pause && generated % checkEveryK == 0) {
+            long clamp = max_scaling_max_khz(cores);
+            if (clamp > 0 && clamp < clampThresholdKhz) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(pauseMs));
+                slept_ms += pauseMs;
+            }
+        }
+    }
+    auto t_decode_done = std::chrono::steady_clock::now();
+    llama_sampler_free(smpl);
+
+    double prefill_ms = std::chrono::duration<double, std::milli>(t_prefill_done - t_start).count();
+    double decode_ms = std::chrono::duration<double, std::milli>(t_decode_done - t_prefill_done).count();
+    long rss_kb = read_vmrss_kb();
+
+    char buf[160];
+    snprintf(buf, sizeof(buf), "%.1f,%.1f,%d,%ld,%.1f", prefill_ms, decode_ms, generated, rss_kb, slept_ms);
     return env->NewStringUTF(buf);
 }
 

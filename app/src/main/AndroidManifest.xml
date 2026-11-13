@@ -6,6 +6,9 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- Keep the CPU running with the screen off while a long benchmark executes. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Alarm/timer voice commands fire standard AlarmClock intents at the system clock
@@ -78,6 +81,12 @@
             android:name=".voice.WakeWordService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+
+        <!-- Runs long Perf Lab benchmarks in the background (survives screen-off), with a wake lock. -->
+        <service
+            android:name=".voice.research.bench.BenchmarkService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <!-- The "full control" layer: types into other apps, launches apps, navigates.
              The user must enable this in Settings > Accessibility. -->
