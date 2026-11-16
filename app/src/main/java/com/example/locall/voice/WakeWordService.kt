@@ -31,7 +31,10 @@ class WakeWordService : Service() {
         private const val NOTIF_ID = 1
         private const val SR = 16_000
         private const val COOLDOWN_MS = 1_500
-        private const val COMMAND_TIMEOUT_MS = 10_000L
+        private const val COMMAND_TIMEOUT_MS = 45_000L
+        // Trailing-silence the command capture tolerates before deciding the speaker is done.
+        // Long enough to survive a thinking pause while dictating an email body.
+        private const val COMMAND_SILENCE_MS = 2_500L
 
         @Volatile var isRunning = false; private set
     }
@@ -108,7 +111,13 @@ class WakeWordService : Service() {
                     val didPause = MediaPlaybackGate.pauseForCommand(applicationContext)
 
                     record.stop(); record.release()
-                    val text = runBlocking { speech.recognizeOnce(timeoutMs = COMMAND_TIMEOUT_MS) }
+                    val text = runBlocking {
+                        speech.recognizeOnce(
+                            timeoutMs = COMMAND_TIMEOUT_MS,
+                            silenceMs = COMMAND_SILENCE_MS,
+                            continuous = true,
+                        )
+                    }
                     cooldownUntilChunks = chunkCount + (COOLDOWN_MS / 80)
                     val res = runCommand(text ?: "")
                     if (didPause && res?.keepMusicPaused != true) MediaPlaybackGate.resume(applicationContext)

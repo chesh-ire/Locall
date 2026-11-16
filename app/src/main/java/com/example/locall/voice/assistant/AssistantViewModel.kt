@@ -192,7 +192,12 @@ class AssistantViewModel private constructor(appContext: Context) {
         scope.launch {
             // Pause any playing media so the recognizer hears the user (ported from VoiceOrchestrator).
             mediaPausedForTurn = runCatching { MediaPlaybackGate.pauseForCommand(app) }.getOrDefault(false)
-            val text = runCatching { speech.recognizeOnce(timeoutMs = 15_000) }.getOrNull()
+            // Hold-to-talk: the user ends the turn by releasing (stopRecording → finishNow), so the
+            // recognizer must not endpoint on a mid-sentence pause. Large silence window + continuous
+            // stitching; the release delivers whatever was captured so far.
+            val text = runCatching {
+                speech.recognizeOnce(timeoutMs = 120_000, silenceMs = 5_000L, continuous = true)
+            }.getOrNull()
             _ui.value = _ui.value.copy(recording = false)
             if (text.isNullOrBlank()) {
                 if (mediaPausedForTurn) { runCatching { MediaPlaybackGate.resume(app) }; mediaPausedForTurn = false }

@@ -35,10 +35,16 @@ object ActionConfirmation {
         svc: VoiceAccessibilityService,
         speech: SpeechRecognitionBridge,
         prompt: String,
-        timeoutMs: Long = 12_000,
+        timeoutMs: Long = 30_000,
     ): String? {
         if (prompt.isNotBlank()) svc.speak(prompt)
-        val reply = speech.recognizeOnce(timeoutMs = timeoutMs)?.trim()
+        // A refine turn can be a full verbatim replacement body, so tolerate thinking pauses and
+        // stitch segments rather than cutting off on the first silence.
+        val reply = speech.recognizeOnce(
+            timeoutMs = timeoutMs,
+            silenceMs = 2_500L,
+            continuous = true,
+        )?.trim()
         Log.i(TAG, "listen(\"${prompt.take(60)}…\"): heard=${reply?.let { "\"$it\"" } ?: "nothing"}")
         return reply?.ifBlank { null }
     }
