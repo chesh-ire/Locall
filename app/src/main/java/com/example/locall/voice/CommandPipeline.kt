@@ -100,7 +100,7 @@ object CommandPipeline {
             return music(appContext).handle(appContext, action.transcript, onStatus, playViaSearch)
         }
         if (action is CommandAction.Memory) {
-            val speak: (String) -> Unit = { text -> VoiceAccessibilityService.instance?.speak(text) }
+            val speak: (String) -> Unit = { text -> AppTts.speak(appContext, text) }
             return memory(appContext).handle(appContext, action.transcript, System.currentTimeMillis(), onStatus, speak)
         }
         if (action is CommandAction.Torch) {
@@ -124,19 +124,19 @@ object CommandPipeline {
                 else "⚠️ no clock app to open"
         }
         if (action is CommandAction.Email) {
-            val speak: (String) -> Unit = { text -> VoiceAccessibilityService.instance?.speak(text) }
+            val speak: (String) -> Unit = { text -> AppTts.speak(appContext, text) }
             return email(appContext).handle(appContext, action.transcript, onStatus, confirm, speak, listen)
         }
         if (action is CommandAction.Battery) {
-            val speak: (String) -> Unit = { text -> VoiceAccessibilityService.instance?.speak(text) }
+            val speak: (String) -> Unit = { text -> AppTts.speak(appContext, text) }
             return battery(appContext).handle(appContext, action.transcript, onStatus, confirm, speak)
         }
         if (action is CommandAction.Research) {
-            val speak: (String) -> Unit = { text -> VoiceAccessibilityService.instance?.speak(text) }
+            val speak: (String) -> Unit = { text -> AppTts.speak(appContext, text) }
             return research(appContext).handle(appContext, action.transcript, onStatus, speak, confirm, contextBlock)
         }
         if (action is CommandAction.Agent) {
-            val speak: (String) -> Unit = { text -> VoiceAccessibilityService.instance?.speak(text) }
+            val speak: (String) -> Unit = { text -> AppTts.speak(appContext, text) }
             return agent(appContext).handle(appContext, action.transcript, onStatus, confirm, speak, listen, contextBlock)
         }
 

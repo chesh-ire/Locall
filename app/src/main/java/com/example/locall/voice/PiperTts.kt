@@ -114,6 +114,10 @@ class PiperTts(private val context: Context) {
         val minBuf = AudioTrack.getMinBufferSize(
             sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_FLOAT
         )
+        // MODE_STREAM (not MODE_STATIC): a whole-inbox narration read in one utterance can be minutes of
+        // audio, which overflows the fixed MODE_STATIC buffer. We write in blocking chunks (write() paces
+        // itself to playback) and drain by watching the playback head, so any length plays gap-free.
+        val bufBytes = maxOf(minBuf, sampleRate * 4 / 2) // ~0.5s of float PCM
         val track = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -128,20 +132,27 @@ class PiperTts(private val context: Context) {
                     .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                     .build()
             )
-            .setBufferSizeInBytes(maxOf(minBuf, samples.size * 4))
-            .setTransferMode(AudioTrack.MODE_STATIC)
+            .setBufferSizeInBytes(bufBytes)
+            .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
         try {
-            Log.i(TAG, "playBlocking: writing ${samples.size} samples (minBuf=$minBuf)")
-            track.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
-            Log.i(TAG, "playBlocking: write done, starting playback")
+            Log.i(TAG, "playBlocking: streaming ${samples.size} samples (minBuf=$minBuf)")
             track.play()
-            val durationMs = (samples.size.toDouble() / sampleRate * 1000).toLong() + 150
-            Log.i(TAG, "playBlocking: sleeping ${durationMs}ms")
-            Thread.sleep(durationMs)
-            Log.i(TAG, "playBlocking: sleep done")
+            var off = 0
+            while (off < samples.size) {
+                val n = track.write(samples, off, samples.size - off, AudioTrack.WRITE_BLOCKING)
+                if (n <= 0) { Log.w(TAG, "playBlocking: write returned $n, stopping"); break }
+                off += n
+            }
+            // Wait for the buffered tail to actually play out before releasing (stop() would clip it).
+            val total = off
+            val deadline = System.currentTimeMillis() + 2000
+            while (track.playbackHeadPosition < total && System.currentTimeMillis() < deadline) {
+                Thread.sleep(50)
+            }
+            Log.i(TAG, "playBlocking: playback drained (${track.playbackHeadPosition}/$total)")
         } finally {
-            track.stop()
+            runCatching { track.stop() }
             track.release()
         }
     }

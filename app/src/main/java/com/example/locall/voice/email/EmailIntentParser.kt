@@ -32,8 +32,8 @@ object EmailIntentParser {
         newer_than:14d, "yesterday" -> newer_than:2d, "this month" -> newer_than:30d.
 
         Ops:
-        {"op":"read_latest","query":""}            read the newest message aloud
-        {"op":"summarize","query":"newer_than:1d in:inbox"}  summarise matching mail
+        {"op":"read_latest","query":""}            read ONE email aloud — only for a SINGLE newest message
+        {"op":"summarize","query":"in:inbox"}      overview of MULTIPLE emails (reviewing/catching up)
         {"op":"search","query":"project deadline newer_than:14d"}  find ONE specific email by topic
         {"op":"find_important","query":""}         surface likely-important unread mail
         {"op":"unread_count","query":""}           how many unread
@@ -45,6 +45,9 @@ object EmailIntentParser {
 
         Examples:
         "read my newest message" -> {"op":"read_latest","query":""}
+        "review my last 20 emails and tell me what I missed" -> {"op":"summarize","query":"in:inbox"}
+        "catch me up on my inbox" -> {"op":"summarize","query":"in:inbox"}
+        "what did I miss in my emails today" -> {"op":"summarize","query":"newer_than:1d in:inbox"}
         "summarize emails from my manager" -> {"op":"summarize","query":"from:manager in:inbox"}
         "find the email where someone mentioned the revised project deadline, it came last week" -> {"op":"search","query":"revised project deadline newer_than:14d"}
         "search for the invoice from acme" -> {"op":"search","query":"invoice from:acme"}
@@ -163,6 +166,14 @@ object EmailIntentParser {
     }
 
     suspend fun parse(context: Context, request: String): EmailIntent {
+        // Deterministic fast-path: "review / summarise / catch me up on my last N emails" and
+        // "what did I miss" are unambiguously a MULTI-email summary. The LLM frequently mislabels these
+        // as read_latest (which reads only the single newest email, then stops) — pin them before the
+        // model ever runs. Singular "read my latest email" is intentionally NOT caught here.
+        deterministicSummarize(request)?.let {
+            Log.i(TAG, "parse(\"$request\") -> deterministic $it")
+            return it
+        }
         val decodeThreads = ThermalGovernor.decodeThreads(context)
         val raw = LlmBridge.generateWithGrammar(
             systemPrompt = SYSTEM_PROMPT, userPrompt = request, grammar = EMAIL_GRAMMAR,
@@ -172,12 +183,44 @@ object EmailIntentParser {
         return parseJson(raw)
     }
 
+    private val REVIEW_VERB = Regex(
+        "\\b(summari[sz]e|review|recap|catch me up|catch up|go over|run through|brief me|" +
+            "what did i miss|what i missed|what have i missed|what'?s new)\\b",
+    )
+    // Requires a PLURAL mail signal so singular "read/summarise the last email" is left to the LLM.
+    private val MAIL_PLURAL = Regex("\\b(emails|e-?mails|inbox|messages|mails)\\b")
+
+    private val NUMBER_WORDS = mapOf(
+        "one" to 1, "two" to 2, "three" to 3, "four" to 4, "five" to 5, "six" to 6, "seven" to 7,
+        "eight" to 8, "nine" to 9, "ten" to 10, "eleven" to 11, "twelve" to 12, "fifteen" to 15,
+        "twenty" to 20, "thirty" to 30, "forty" to 40, "fifty" to 50,
+    )
+
+    /** "review my last 20 emails / what did I miss" → Summarize over the N most recent inbox mails. */
+    private fun deterministicSummarize(request: String): EmailIntent.Summarize? {
+        val r = request.lowercase()
+        if (!REVIEW_VERB.containsMatchIn(r) || !MAIL_PLURAL.containsMatchIn(r)) return null
+        val count = extractCount(r)?.coerceIn(1, 50) ?: 20
+        return EmailIntent.Summarize(query = "in:inbox", count = count)
+    }
+
+    /** Pull a spoken/typed count ("last five", "20") so we fetch exactly what the user asked for. */
+    private fun extractCount(r: String): Int? {
+        Regex("\\b(\\d{1,3})\\b").find(r)?.groupValues?.getOrNull(1)?.toIntOrNull()
+            ?.let { if (it in 1..999) return it }
+        for ((word, n) in NUMBER_WORDS) if (Regex("\\b$word\\b").containsMatchIn(r)) return n
+        return null
+    }
+
     fun parseJson(raw: String): EmailIntent = try {
         val o = JSONObject(raw.trim())
         val query = o.optString("query").trim()
         when (o.optString("op")) {
             "read_latest" -> EmailIntent.ReadLatest(1)
-            "summarize" -> EmailIntent.Summarize(query.ifEmpty { "newer_than:1d in:inbox" })
+            // No explicit query → "review my last N emails": the N most recent inbox messages,
+            // NOT restricted to the last day (newer_than:1d would return only today's mail, which is
+            // why "review my last 20 emails" could stop after a single email).
+            "summarize" -> EmailIntent.Summarize(query.ifEmpty { "in:inbox" })
             "search" -> if (query.isNotEmpty()) EmailIntent.Search(query)
                 else EmailIntent.Unknown("search without a topic")
             "find_important" -> EmailIntent.FindImportant

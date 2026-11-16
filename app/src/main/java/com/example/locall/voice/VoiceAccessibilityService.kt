@@ -33,7 +33,6 @@ class VoiceAccessibilityService : AccessibilityService() {
             private set
     }
 
-    private val tts by lazy { PiperTts(applicationContext) }
     private val scope = CoroutineScope(SupervisorJob())
     private var debugReceiver: BroadcastReceiver? = null
 
@@ -71,7 +70,7 @@ class VoiceAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
-        tts.destroy()
+        // TTS is owned by the process-scoped AppTts now, not by this service, so nothing to tear down.
         super.onDestroy()
     }
 
@@ -79,7 +78,7 @@ class VoiceAccessibilityService : AccessibilityService() {
     override fun onInterrupt() {}
 
     fun speak(text: String) {
-        tts.speak(text)
+        AppTts.speak(applicationContext, text)
     }
 
     fun execute(action: CommandAction): Boolean = when (action) {

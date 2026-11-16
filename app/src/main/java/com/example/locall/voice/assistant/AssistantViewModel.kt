@@ -96,9 +96,16 @@ class AssistantViewModel private constructor(appContext: Context) {
         setPhase(Phase.Running)
         statusMsgId = -1L
         statusAllowed = true
+        val reqId = nextId()
+        Log.i(TAG, "LIFECYCLE req#$reqId START: \"$text\" (fromVoice=$fromVoice)")
         requestJob = scope.launch {   // Main.immediate — UI mutations stay on this thread
             val keepPaused = fromVoice &&
                 MusicIntents.transport(text.lowercase()) == MusicIntent.Pause
+            // Keep the process alive (foreground service + wake lock) so the request runs to completion
+            // and keeps speaking even with the screen off or the user on another page. Never let a
+            // foreground-start restriction abort the request itself.
+            runCatching { AssistantForegroundService.start(app, notifLabel(text)) }
+                .onFailure { Log.w(TAG, "LIFECYCLE req#$reqId FGS start FAILED", it) }
             try {
                 // The handlers do CPU/network/inference work — run them off the main thread. The
                 // confirm/listen/onStatus callbacks hop back to Main themselves.
@@ -112,20 +119,33 @@ class AssistantViewModel private constructor(appContext: Context) {
                 }
                 clearStatus()
                 val body = outcome.result.ifBlank { "Done." }
+                Log.i(TAG, "LIFECYCLE req#$reqId DONE normally: capability=${outcome.capability} resultLen=${body.length}")
                 addMessage(ChatMessage(nextId(), ChatRole.ASSISTANT, body, capability = outcome.capability))
             } catch (c: kotlinx.coroutines.CancellationException) {
+                // Distinguish WHO cancelled: a user Stop sets Phase.Cancelling; anything else (scope
+                // teardown, process kill propagating, an inner coroutine) is an "external" cancel we
+                // want to see. isActive==false means this job itself was cancelled.
+                Log.w(
+                    TAG,
+                    "LIFECYCLE req#$reqId CANCELLED: phase=${_ui.value.phase} " +
+                        "jobActive=${coroutineContext[Job]?.isActive} " +
+                        "scopeActive=${scope.coroutineContext[Job]?.isActive} msg=${c.message}",
+                    c,
+                )
                 clearStatus()
                 addMessage(ChatMessage(nextId(), ChatRole.ERROR, "⏹️ Cancelled."))
             } catch (t: Throwable) {
-                Log.w(TAG, "request failed", t)
+                Log.w(TAG, "LIFECYCLE req#$reqId FAILED", t)
                 clearStatus()
                 addMessage(ChatMessage(nextId(), ChatRole.ERROR, "⚠️ Something went wrong: ${t.javaClass.simpleName}"))
             } finally {
+                Log.i(TAG, "LIFECYCLE req#$reqId FINALLY: releasing foreground + phase→Idle")
                 pendingConfirm = null
                 pendingListen = null
                 if (mediaPausedForTurn && !keepPaused) runCatching { MediaPlaybackGate.resume(app) }
                 mediaPausedForTurn = false
                 requestJob = null
+                runCatching { AssistantForegroundService.stop(app) }
                 setPhase(Phase.Idle)
             }
         }
@@ -144,6 +164,7 @@ class AssistantViewModel private constructor(appContext: Context) {
             statusMsgId = -1L
             statusAllowed = true
             requestJob = scope.launch {
+                runCatching { AssistantForegroundService.start(app, notifLabel(userLabel)) }
                 try {
                     val result = withContext(Dispatchers.Default) { task { s -> postStatus(s) } }
                     clearStatus()
@@ -155,6 +176,7 @@ class AssistantViewModel private constructor(appContext: Context) {
                     clearStatus(); addMessage(ChatMessage(nextId(), ChatRole.ERROR, "⚠️ ${t.javaClass.simpleName}"))
                 } finally {
                     requestJob = null
+                    runCatching { AssistantForegroundService.stop(app) }
                     setPhase(Phase.Idle)
                 }
             }
@@ -230,6 +252,8 @@ class AssistantViewModel private constructor(appContext: Context) {
     // ---------------- cancellation ----------------
 
     fun cancel() {
+        // Log the caller's stack so we can tell a user-tapped Stop from any programmatic cancel.
+        Log.w(TAG, "LIFECYCLE cancel() called (phase=${_ui.value.phase})", Throwable("cancel() call site"))
         scope.launch {
             if (_ui.value.phase == Phase.Idle) return@launch
             setPhase(Phase.Cancelling)
@@ -250,6 +274,12 @@ class AssistantViewModel private constructor(appContext: Context) {
     // ---------------- helpers (main thread) ----------------
 
     private fun nextId() = ids.incrementAndGet()
+
+    /** Short, single-line foreground-notification label derived from the request/task text. */
+    private fun notifLabel(text: String): String {
+        val t = text.trim().replace('\n', ' ')
+        return if (t.length > 60) t.take(57) + "…" else t
+    }
 
     private fun setPhase(p: Phase) { _ui.value = _ui.value.copy(phase = p) }
 

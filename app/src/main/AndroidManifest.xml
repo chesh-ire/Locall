@@ -88,6 +88,14 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Keeps a running assistant request (e.g. "review my last 20 emails") alive while the screen
+             is off or the user navigates away. Brackets each request with a wake lock; see
+             AssistantForegroundService. -->
+        <service
+            android:name=".voice.assistant.AssistantForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <!-- The "full control" layer: types into other apps, launches apps, navigates.
              The user must enable this in Settings > Accessibility. -->
         <service

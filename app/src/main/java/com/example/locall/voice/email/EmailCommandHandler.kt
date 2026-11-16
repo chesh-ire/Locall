@@ -130,10 +130,28 @@ class EmailCommandHandler(appContext: Context) {
                 token, intent.query, max = intent.count, scope = EmailRepository.CacheScope.RECENT_INBOX,
             )
             if (messages.isEmpty()) { speak("You have no emails matching that."); return "📭 nothing to summarise" }
-            val summary = EmailSummarizer.summarize(context, messages)
-            Log.i(TAG, "summary(${messages.size} msgs): $summary")
-            speak(cachePrefix(fromCache) + summary)
-            "📋 ${cachePrefix(fromCache)}$summary"
+            // Summarise ALL emails in ONE LLM call, then speak them as a SINGLE continuous narration.
+            // This is what keeps the time BETWEEN emails under a second: there's no per-email thinking
+            // pause and no per-utterance synthesis gap — the whole review is one uninterrupted read.
+            val total = messages.size
+            val summaries = EmailSummarizer.summarizeEach(context, messages)
+            // Remember the most-recent email so a follow-up ("reply to that") has context.
+            messages.firstOrNull()?.let { m ->
+                val body = runCatching { repo.body(token, m.id) }.getOrNull()?.ifBlank { m.snippet } ?: m.snippet
+                session.remember(m.id, EmailSummarizer.cleanFrom(m.from), m.subject, body)
+            }
+            val narration = buildString {
+                append("You have $total recent email${if (total == 1) "" else "s"}. ")
+                messages.forEachIndexed { i, m ->
+                    append("Email ${i + 1}, from ${EmailSummarizer.cleanFrom(m.from)}. ${summaries[i]} ")
+                }
+            }.trim()
+            Log.i(TAG, "narrating $total emails in one pass (${narration.length} chars)")
+            speak(narration)
+            val lines = messages.mapIndexed { i, m ->
+                "📨 ${i + 1}. ${EmailSummarizer.cleanFrom(m.from)} — ${m.subject.ifBlank { "(no subject)" }}: ${summaries[i]}"
+            }.joinToString("\n")
+            "📋 ${cachePrefix(fromCache)}Read $total email${if (total == 1) "" else "s"}:\n$lines"
         }
 
         is EmailIntent.SummarizeThread -> handleSummarizeThread(context, token, intent, speak, listen)
