@@ -37,6 +37,7 @@ object ResearchAgent {
         context: Context,
         query: String,
         onStatus: (String) -> Unit = {},
+        contextBlock: String = "",
     ): Answer {
         val repo = KnowledgeRepository.get(context)
         val corpus = repo.retrievables()
@@ -51,13 +52,21 @@ object ResearchAgent {
 
         return when (classify(query)) {
             Kind.DECISIONS -> aggregate(context, query, corpus, onStatus,
-                field = { it.decisions }, kindLabel = "decisions", system = DECISIONS_SYSTEM)
+                field = { it.decisions }, kindLabel = "decisions", system = DECISIONS_SYSTEM, contextBlock = contextBlock)
             Kind.COMMITMENTS -> aggregate(context, query, corpus, onStatus,
-                field = { it.commitments }, kindLabel = "commitments", system = COMMITMENTS_SYSTEM)
-            Kind.WEEKLY_REPORT -> weeklyReport(context, query, corpus, onStatus)
-            Kind.GENERAL -> general(context, query, corpus, onStatus)
+                field = { it.commitments }, kindLabel = "commitments", system = COMMITMENTS_SYSTEM, contextBlock = contextBlock)
+            Kind.WEEKLY_REPORT -> weeklyReport(context, query, corpus, onStatus, contextBlock)
+            Kind.GENERAL -> general(context, query, corpus, onStatus, contextBlock)
         }
     }
+
+    /**
+     * Prior-turn context carried in from the central assistant (e.g. a previous email summary the user
+     * now asks a follow-up about). Injected ONLY into the final answer-writing stages — never into
+     * retrieval or classification, which key off the raw [query].
+     */
+    private fun ctxPrefix(contextBlock: String): String =
+        if (contextBlock.isBlank()) "" else "Earlier in this conversation:\n${contextBlock.trim()}\n\n"
 
     // ---------- classification ----------
 
@@ -82,6 +91,7 @@ object ResearchAgent {
         query: String,
         corpus: List<RetrievableChunk>,
         onStatus: (String) -> Unit,
+        contextBlock: String = "",
     ): Answer {
         onStatus("Searching your knowledge…")
         val top = KeywordRetriever.topK(query, corpus, TOP_K)
@@ -113,6 +123,7 @@ object ResearchAgent {
 
         onStatus("Writing answer…")
         val synthInput = buildString {
+            append(ctxPrefix(contextBlock))
             append("Question: ").append(query.trim()).append("\n\nFacts:\n").append(tagged)
             if (compareNotes.isNotBlank()) append("\n\nCross-source notes:\n").append(compareNotes)
         }
@@ -140,6 +151,7 @@ object ResearchAgent {
         field: (RetrievableChunk) -> List<String>,
         kindLabel: String,
         system: String,
+        contextBlock: String = "",
     ): Answer {
         onStatus("Gathering $kindLabel…")
         val tagged = corpus.flatMap { c -> field(c).map { "${c.citation} $it" } }
@@ -149,7 +161,7 @@ object ResearchAgent {
         }
         onStatus("Consolidating $kindLabel…")
         val (material, condensePasses) = reduceToFit(context, tagged)
-        val input = "Question: ${query.trim()}\n\nExtracted $kindLabel:\n$material"
+        val input = "${ctxPrefix(contextBlock)}Question: ${query.trim()}\n\nExtracted $kindLabel:\n$material"
         val text = runStage(context, system, input, maxTokens = 320).ifBlank { material }
         return Answer(text.trim(), citations, corpus.size, condensePasses + 1)
     }
@@ -161,6 +173,7 @@ object ResearchAgent {
         query: String,
         corpus: List<RetrievableChunk>,
         onStatus: (String) -> Unit,
+        contextBlock: String = "",
     ): Answer {
         onStatus("Collecting this week's material…")
         val cutoff = System.currentTimeMillis() - WEEK_MS
@@ -181,7 +194,7 @@ object ResearchAgent {
         onStatus("Reducing…")
         val (reduced, condensePasses) = reduceToFit(context, material)
         onStatus("Writing the report…")
-        val input = "Request: ${query.trim()}\n\nMaterial from the user's recent documents:\n$reduced"
+        val input = "${ctxPrefix(contextBlock)}Request: ${query.trim()}\n\nMaterial from the user's recent documents:\n$reduced"
         val text = runStage(context, WEEKLY_REPORT_SYSTEM, input, maxTokens = 360).ifBlank { reduced }
         val citations = recent.map { it.citation }.distinct()
         return Answer(text.trim(), citations, recent.size, condensePasses + 1)

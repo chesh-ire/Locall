@@ -14,10 +14,11 @@ class AgentOrchestrator(context: Context) {
         utterance: String,
         convo: ConversationManager,
         io: ToolExecutor.Io,
+        contextBlock: String = "",
     ): ToolExecutor.Result {
         val tool = ToolRegistry.resolve(context, utterance, io.onStatus)
         Log.i(TAG, "utterance=\"$utterance\" -> ${tool::class.simpleName}")
-        val result = executor.execute(tool, convo, io)
+        val result = executor.execute(tool, convo, io, contextBlock)
         convo.record(utterance, result.spoken)
         return result
     }

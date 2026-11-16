@@ -54,7 +54,7 @@ class ToolExecutor(context: Context) {
         val onStatus: (String) -> Unit,
     )
 
-    suspend fun execute(tool: AgentTool, convo: ConversationManager, io: Io): Result = when (tool) {
+    suspend fun execute(tool: AgentTool, convo: ConversationManager, io: Io, contextBlock: String = ""): Result = when (tool) {
         is AgentTool.BriefInbox -> briefInbox(convo, io)
         is AgentTool.ListTasks -> listTasks(convo)
         is AgentTool.PlanDay -> planDay()
@@ -63,12 +63,12 @@ class ToolExecutor(context: Context) {
         is AgentTool.DeleteTask -> deleteTask(tool.ref, convo)
         is AgentTool.PostponeTask -> postponeTask(tool, convo)
         is AgentTool.RemindTask -> remindTask(tool, convo)
-        is AgentTool.PlanGoal -> planGoal(tool, convo, io)
+        is AgentTool.PlanGoal -> planGoal(tool, convo, io, contextBlock)
         is AgentTool.GoalProgress -> goalProgress(tool.ref, convo)
         is AgentTool.ReplyTo -> reply(tool, convo, io)
         is AgentTool.ExtractTasks -> extractTasks(tool.ref, convo, io)
         is AgentTool.DiscussMessage -> discuss(tool.ref, convo, io)
-        is AgentTool.Chat -> chat(tool.text, convo)
+        is AgentTool.Chat -> chat(tool.text, convo, contextBlock)
         is AgentTool.Unknown -> Result("🤷 I didn't catch what you'd like me to do.")
     }
 
@@ -191,9 +191,9 @@ class ToolExecutor(context: Context) {
         }
     }
 
-    private suspend fun planGoal(tool: AgentTool.PlanGoal, convo: ConversationManager, io: Io): Result {
+    private suspend fun planGoal(tool: AgentTool.PlanGoal, convo: ConversationManager, io: Io, contextBlock: String = ""): Result {
         if (tool.goal.isBlank()) return Result("What goal should I plan?", "What goal should I plan for you?")
-        val plan = planner.propose(app, tool.goal, "", tool.horizonDays, io.onStatus)
+        val plan = planner.propose(app, tool.goal, contextBlock, tool.horizonDays, io.onStatus)
         if (plan.isEmpty) return Result("⚠️ I couldn't break that into steps.", "I couldn't break that goal into steps.")
         val preview = plan.steps.take(6).mapIndexed { i, s -> "${i + 1}. ${s.title}" }.joinToString("; ")
         val ask = "I've drafted a ${plan.steps.size}-step plan: $preview. Shall I save it and schedule reminders?"
@@ -328,21 +328,22 @@ class ToolExecutor(context: Context) {
         return Result("💬 ${item.sender} — ${item.title}\n$summary", spoken, continueConversation = true)
     }
 
-    private suspend fun chat(text: String, convo: ConversationManager): Result {
+    private suspend fun chat(text: String, convo: ConversationManager, contextBlock: String = ""): Result {
         LlmBridge.ensureLoaded(app) {}
         val state = ctxBuilder.stateBlock(app, text)
         val focus = convo.focusInboxId?.let { inbox.item(it) }
         val focusBlock = focus?.let { "\nMessage in focus — from ${it.sender}, subject ${it.title}: ${it.preview.take(300)}" } ?: ""
         val recent = convo.recentContext()
+        val priorBlock = if (contextBlock.isBlank()) "" else "\nEarlier in this conversation:\n${contextBlock.trim()}"
         val decodeThreads = ThermalGovernor.decodeThreads(app)
         val system = """
             You are LocaLL's personal agent. Answer the user's request briefly (1-3 sentences) using ONLY the
-            context below (their tasks, goals, and any message in focus). If the answer isn't in the context,
-            say you don't have that information. Do not invent tasks, dates, or facts.
+            context below (their tasks, goals, any message in focus, and earlier conversation). If the answer
+            isn't in the context, say you don't have that information. Do not invent tasks, dates, or facts.
         """.trimIndent()
         val user = buildString {
             if (recent.isNotBlank()) append(recent).append('\n')
-            append("Context:\n").append(state).append(focusBlock).append("\n\nRequest: ").append(text)
+            append("Context:\n").append(state).append(focusBlock).append(priorBlock).append("\n\nRequest: ").append(text)
         }
         val answer = try {
             LlmBridge.generateText(system, user, temperature = 0.5f, maxTokens = 160, decodeThreads = decodeThreads).trim()

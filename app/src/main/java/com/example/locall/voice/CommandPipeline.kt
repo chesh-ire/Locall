@@ -67,20 +67,28 @@ object CommandPipeline {
 
         val action = withContext(InferenceDispatcher.dispatcher) { matcher.resolve(t, onStatus) }
         Log.i(TAG, "runText: resolved to $action")
-        val resultText = dispatch(action, appContext, mediaWasPlaying, onStatus, confirm, listen)
+        val resultText = runAction(action, appContext, mediaWasPlaying, onStatus, confirm, listen)
         Log.i(TAG, "runText: dispatch result=\"$resultText\"")
         val keepPaused = action is CommandAction.Music &&
             MusicIntents.transport(action.transcript.lowercase()) == MusicIntent.Pause
         return Result(t, resultText, keepPaused)
     }
 
-    private suspend fun dispatch(
+    /**
+     * Execute an already-resolved [action]. Public so the central conversational assistant
+     * (voice/assistant/) can route a request it classified itself through the SAME singleton
+     * handlers (preserving their session state) instead of forking them. [contextBlock] carries
+     * prior-turn results into the LLM-driven handlers (Research / Agent) for cross-turn context;
+     * it's ignored by grammar-only handlers. [runText] remains the voice capture wrapper.
+     */
+    suspend fun runAction(
         action: CommandAction,
         appContext: Context,
-        mediaWasPlaying: Boolean,
-        onStatus: (String) -> Unit,
-        confirm: suspend (String) -> Boolean,
-        listen: suspend (String) -> String?,
+        mediaWasPlaying: Boolean = false,
+        onStatus: (String) -> Unit = {},
+        confirm: suspend (String) -> Boolean = { false },
+        listen: suspend (String) -> String? = { null },
+        contextBlock: String = "",
     ): String {
         if (action is CommandAction.Volume) {
             return handleVolume(appContext, action.up, mediaWasPlaying, confirm)
@@ -125,11 +133,11 @@ object CommandPipeline {
         }
         if (action is CommandAction.Research) {
             val speak: (String) -> Unit = { text -> VoiceAccessibilityService.instance?.speak(text) }
-            return research(appContext).handle(appContext, action.transcript, onStatus, speak)
+            return research(appContext).handle(appContext, action.transcript, onStatus, speak, confirm, contextBlock)
         }
         if (action is CommandAction.Agent) {
             val speak: (String) -> Unit = { text -> VoiceAccessibilityService.instance?.speak(text) }
-            return agent(appContext).handle(appContext, action.transcript, onStatus, confirm, speak, listen)
+            return agent(appContext).handle(appContext, action.transcript, onStatus, confirm, speak, listen, contextBlock)
         }
 
         val svc = VoiceAccessibilityService.instance
@@ -246,6 +254,15 @@ object CommandPipeline {
         else -> app
     }
 
+
+    /**
+     * Resolve a free-form transcript to a concrete DEVICE-control [CommandAction] (open app, type,
+     * navigate, screenshot, alarm, timer, …) via the on-device LLM. Exposed for the capability
+     * router: when it classifies a request as "device" but no deterministic grammar matched, it
+     * delegates here to extract the specific device action using the proven [COMMAND_SYSTEM_PROMPT].
+     */
+    suspend fun resolveDeviceAction(transcript: String, onStatus: (String) -> Unit): CommandAction =
+        llmFallback(transcript, onStatus)
 
     private suspend fun llmFallback(transcript: String, onStatus: (String) -> Unit): CommandAction {
         val context = VoiceAccessibilityService.instance?.applicationContext ?: appContextForLlm ?: run {

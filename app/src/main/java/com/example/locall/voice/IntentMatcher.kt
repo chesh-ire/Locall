@@ -30,6 +30,23 @@ class IntentMatcher(
         return CommandAction.Unrecognized(transcript, "no grammar match")
     }
 
+    /**
+     * Deterministic grammar routing ONLY: the same normalization + [matchGrammar] that [resolve] runs,
+     * but with no LLM fallback and no short-phrase→OpenApp guess. Returns null when nothing matches.
+     * The conversational [com.example.locall.voice.assistant.CapabilityRouter] uses this and supplies
+     * its own capability-aware LLM classifier for the miss case — the 1–3 word OpenApp heuristic is
+     * wrong for a chat surface ("my tasks" should route to the agent, not open an app).
+     */
+    fun grammarOnly(transcript: String): CommandAction? {
+        var t = transcript.trim().lowercase()
+        if (t.isEmpty()) return null
+        WHATSAPP_PATTERN.find(t)?.let { m -> t = "whatsapp" + t.substring(m.value.length) }
+        for ((wrong, right) in WHATSAPP_MISHEARINGS) {
+            if (t.startsWith(wrong)) { t = right + t.removePrefix(wrong); break }
+        }
+        return matchGrammar(t, transcript)
+    }
+
     fun matchGrammar(normalized: String, original: String): CommandAction? {
         if (MusicIntents.matches(normalized)) return CommandAction.Music(original.trim())
         if (MemoryIntents.matches(normalized)) return CommandAction.Memory(original.trim())
