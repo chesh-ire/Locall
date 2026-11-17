@@ -73,8 +73,8 @@ fun ConversationScreen(
                 busy = ui.busy,
                 onOpenMenu = onOpenMenu,
                 onOpenPerfLab = onOpenPerfLab,
-                onClear = { vm.clearConversation() },
-                canClear = ui.phase == AssistantViewModel.Phase.Idle && ui.messages.isNotEmpty(),
+                onNewConversation = { vm.newConversation() },
+                canStartNew = ui.phase == AssistantViewModel.Phase.Idle && ui.messages.isNotEmpty(),
             )
 
             if (ui.messages.isEmpty()) {
@@ -134,8 +134,8 @@ private fun TopBar(
     busy: Boolean,
     onOpenMenu: () -> Unit,
     onOpenPerfLab: () -> Unit,
-    onClear: () -> Unit,
-    canClear: Boolean,
+    onNewConversation: () -> Unit,
+    canStartNew: Boolean,
 ) {
     Row(
         Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 12.dp, bottom = 4.dp),
@@ -151,7 +151,7 @@ private fun TopBar(
             )
         }
         if (busy) StatusPill(text = "Working", tone = PillTone.Active, modifier = Modifier.padding(end = 4.dp))
-        if (canClear) IconButton(onClick = onClear) { Text("🧹", fontSize = 18.sp) }
+        if (canStartNew) IconButton(onClick = onNewConversation) { Text("✎", fontSize = 20.sp) }
         IconButton(onClick = onOpenPerfLab) { FlaskIcon(Modifier.size(22.dp)) }
     }
 }

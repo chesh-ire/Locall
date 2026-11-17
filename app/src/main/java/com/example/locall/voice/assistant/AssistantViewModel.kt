@@ -3,6 +3,9 @@ package com.example.locall.voice.assistant
 import android.content.Context
 import android.util.Log
 import com.example.locall.voice.SpeechRecognitionBridge
+import com.example.locall.voice.assistant.data.ChatMessageEntity
+import com.example.locall.voice.assistant.data.ConversationRepository
+import com.example.locall.voice.assistant.data.ConversationSession
 import com.example.locall.voice.music.MediaPlaybackGate
 import com.example.locall.voice.music.MusicIntent
 import com.example.locall.voice.music.MusicIntents
@@ -12,11 +15,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.max
 
 private const val TAG = "AssistantVM"
 
@@ -38,6 +47,19 @@ class AssistantViewModel private constructor(appContext: Context) {
     private val speech = SpeechRecognitionBridge(app)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val ids = AtomicLong(0L)
+
+    // ---- persistence ----
+    private val repo = ConversationRepository(app)
+    /** The session the on-screen transcript currently belongs to; null until the first turn is saved. */
+    @Volatile private var currentSessionId: String? = null
+    /** Serialises DB writes so persisted message order matches the order they appear on screen. */
+    private val persistMutex = Mutex()
+    /** Guards one-time restore of the most-recent conversation on process start. */
+    @Volatile private var restored = false
+
+    /** Live list of saved conversations for the top-left drawer, most-recently-updated first. */
+    val sessions: StateFlow<List<ConversationSession>> =
+        repo.recentSessionsFlow().stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     enum class Phase { Idle, Running, AwaitingConfirm, AwaitingInput, Cancelling }
 
@@ -68,6 +90,24 @@ class AssistantViewModel private constructor(appContext: Context) {
         if (!_ui.value.recognizerReady) {
             _ui.value = _ui.value.copy(recognizerReady = speech.isAvailable())
         }
+        restoreMostRecentOnce()
+    }
+
+    /**
+     * On the first [init] of the process, reopen the most recently used conversation so the transcript
+     * is never silently discarded. No-ops if the user already started interacting before restore ran.
+     */
+    private fun restoreMostRecentOnce() {
+        if (restored) return
+        restored = true
+        scope.launch {
+            val session = repo.mostRecentSession() ?: return@launch
+            if (currentSessionId != null || _ui.value.messages.isNotEmpty()) return@launch
+            val restoredMsgs = repo.messagesFor(session.id).map { it.toChatMessage() }
+            if (currentSessionId != null || _ui.value.messages.isNotEmpty()) return@launch
+            currentSessionId = session.id
+            adoptLoadedMessages(restoredMsgs)
+        }
     }
 
     // ---------------- user input ----------------
@@ -80,14 +120,14 @@ class AssistantViewModel private constructor(appContext: Context) {
             val waitingListen = pendingListen
             if (waitingListen != null) {
                 pendingListen = null
-                addMessage(ChatMessage(nextId(), ChatRole.USER, t))
+                addAndPersist(ChatMessage(nextId(), ChatRole.USER, t))
                 resolvePromptBubbles()
                 setPhase(Phase.Running)
                 waitingListen.complete(t)
                 return@launch
             }
             if (_ui.value.phase != Phase.Idle) return@launch   // input disabled otherwise
-            addMessage(ChatMessage(nextId(), ChatRole.USER, t))
+            addAndPersist(ChatMessage(nextId(), ChatRole.USER, t))
             startRequest(t, fromVoice)
         }
     }
@@ -120,7 +160,7 @@ class AssistantViewModel private constructor(appContext: Context) {
                 clearStatus()
                 val body = outcome.result.ifBlank { "Done." }
                 Log.i(TAG, "LIFECYCLE req#$reqId DONE normally: capability=${outcome.capability} resultLen=${body.length}")
-                addMessage(ChatMessage(nextId(), ChatRole.ASSISTANT, body, capability = outcome.capability))
+                addAndPersist(ChatMessage(nextId(), ChatRole.ASSISTANT, body, capability = outcome.capability))
             } catch (c: kotlinx.coroutines.CancellationException) {
                 // Distinguish WHO cancelled: a user Stop sets Phase.Cancelling; anything else (scope
                 // teardown, process kill propagating, an inner coroutine) is an "external" cancel we
@@ -133,11 +173,11 @@ class AssistantViewModel private constructor(appContext: Context) {
                     c,
                 )
                 clearStatus()
-                addMessage(ChatMessage(nextId(), ChatRole.ERROR, "⏹️ Cancelled."))
+                addAndPersist(ChatMessage(nextId(), ChatRole.ERROR, "⏹️ Cancelled."))
             } catch (t: Throwable) {
                 Log.w(TAG, "LIFECYCLE req#$reqId FAILED", t)
                 clearStatus()
-                addMessage(ChatMessage(nextId(), ChatRole.ERROR, "⚠️ Something went wrong: ${t.javaClass.simpleName}"))
+                addAndPersist(ChatMessage(nextId(), ChatRole.ERROR, "⚠️ Something went wrong: ${t.javaClass.simpleName}"))
             } finally {
                 Log.i(TAG, "LIFECYCLE req#$reqId FINALLY: releasing foreground + phase→Idle")
                 pendingConfirm = null
@@ -159,7 +199,7 @@ class AssistantViewModel private constructor(appContext: Context) {
     fun runTask(userLabel: String, capability: String, task: suspend ((String) -> Unit) -> String) {
         scope.launch {
             if (_ui.value.phase != Phase.Idle) return@launch
-            addMessage(ChatMessage(nextId(), ChatRole.USER, userLabel))
+            addAndPersist(ChatMessage(nextId(), ChatRole.USER, userLabel))
             setPhase(Phase.Running)
             statusMsgId = -1L
             statusAllowed = true
@@ -168,12 +208,12 @@ class AssistantViewModel private constructor(appContext: Context) {
                 try {
                     val result = withContext(Dispatchers.Default) { task { s -> postStatus(s) } }
                     clearStatus()
-                    addMessage(ChatMessage(nextId(), ChatRole.ASSISTANT, result.ifBlank { "Done." }, capability = capability))
+                    addAndPersist(ChatMessage(nextId(), ChatRole.ASSISTANT, result.ifBlank { "Done." }, capability = capability))
                 } catch (c: kotlinx.coroutines.CancellationException) {
-                    clearStatus(); addMessage(ChatMessage(nextId(), ChatRole.ERROR, "⏹️ Cancelled."))
+                    clearStatus(); addAndPersist(ChatMessage(nextId(), ChatRole.ERROR, "⏹️ Cancelled."))
                 } catch (t: Throwable) {
                     Log.w(TAG, "task failed", t)
-                    clearStatus(); addMessage(ChatMessage(nextId(), ChatRole.ERROR, "⚠️ ${t.javaClass.simpleName}"))
+                    clearStatus(); addAndPersist(ChatMessage(nextId(), ChatRole.ERROR, "⚠️ ${t.javaClass.simpleName}"))
                 } finally {
                     requestJob = null
                     runCatching { AssistantForegroundService.stop(app) }
@@ -270,10 +310,44 @@ class AssistantViewModel private constructor(appContext: Context) {
         }
     }
 
-    fun clearConversation() {
+    // ---------------- conversation sessions ----------------
+
+    /**
+     * Start a fresh conversation. The current one stays saved in history; the next message opens a new
+     * session row. Only the cross-capability routing memory is reset — persisted chats are untouched.
+     */
+    fun newConversation() {
         if (_ui.value.phase != Phase.Idle) return
+        if (currentSessionId == null && _ui.value.messages.isEmpty()) return
         orchestrator.reset()
+        currentSessionId = null
         _ui.value = _ui.value.copy(messages = emptyList())
+    }
+
+    /** Reopen a previously saved conversation, replacing the on-screen transcript with its messages. */
+    fun openSession(sessionId: String) {
+        if (_ui.value.phase != Phase.Idle) return
+        if (sessionId == currentSessionId) return
+        scope.launch {
+            val loaded = repo.messagesFor(sessionId).map { it.toChatMessage() }
+            if (_ui.value.phase != Phase.Idle) return@launch
+            orchestrator.reset()
+            currentSessionId = sessionId
+            adoptLoadedMessages(loaded)
+        }
+    }
+
+    /** Delete a saved conversation. If it is the one on screen, clear back to an empty state. */
+    fun deleteSession(sessionId: String) {
+        if (sessionId == currentSessionId && _ui.value.phase != Phase.Idle) return
+        scope.launch {
+            repo.deleteSession(sessionId)
+            if (sessionId == currentSessionId) {
+                orchestrator.reset()
+                currentSessionId = null
+                _ui.value = _ui.value.copy(messages = emptyList())
+            }
+        }
     }
 
     // ---------------- helpers (main thread) ----------------
@@ -291,6 +365,42 @@ class AssistantViewModel private constructor(appContext: Context) {
     private fun addMessage(m: ChatMessage) {
         _ui.value = _ui.value.copy(messages = _ui.value.messages + m)
     }
+
+    /** Append a durable message to the screen AND write it to the current session (created lazily). */
+    private fun addAndPersist(m: ChatMessage) {
+        addMessage(m)
+        persist(m.role, m.text, m.capability)
+    }
+
+    private fun persist(role: ChatRole, text: String, capability: String?) {
+        if (role != ChatRole.USER && role != ChatRole.ASSISTANT && role != ChatRole.ERROR) return
+        scope.launch {
+            persistMutex.withLock {   // keep DB insert order == on-screen order
+                val now = System.currentTimeMillis()
+                val sid = currentSessionId ?: run {
+                    val created = repo.createSession(UUID.randomUUID().toString(), text, now)
+                    currentSessionId = created.id
+                    created.id
+                }
+                repo.saveMessage(sid, role.name, text, capability, now)
+            }
+        }
+    }
+
+    /** Swap the transcript for a loaded set, keeping the runtime id counter ahead of restored row ids. */
+    private fun adoptLoadedMessages(loaded: List<ChatMessage>) {
+        val maxId = loaded.maxOfOrNull { it.id } ?: 0L
+        ids.updateAndGet { max(it, maxId) }
+        _ui.value = _ui.value.copy(messages = loaded)
+    }
+
+    private fun ChatMessageEntity.toChatMessage(): ChatMessage =
+        ChatMessage(
+            id = id,
+            role = runCatching { ChatRole.valueOf(role) }.getOrDefault(ChatRole.ASSISTANT),
+            text = content,
+            capability = capability,
+        )
 
     private fun updateMessages(transform: (List<ChatMessage>) -> List<ChatMessage>) {
         _ui.value = _ui.value.copy(messages = transform(_ui.value.messages))

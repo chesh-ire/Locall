@@ -19,8 +19,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import com.example.locall.ui.assistant.ConversationDrawerContent
 import com.example.locall.ui.assistant.ConversationScreen
-import com.example.locall.ui.assistant.SetupSheetContent
 import com.example.locall.ui.components.FlaskIcon
 import com.example.locall.ui.theme.LocaLLTheme
 import com.example.locall.voice.agent.follow.FollowUpManager
@@ -83,7 +83,10 @@ private fun AppRoot(vm: AssistantViewModel) {
                 drawerContainerColor = MaterialTheme.colorScheme.surface,
                 modifier = Modifier.widthIn(max = 348.dp),
             ) {
-                SetupSheetContent()
+                ConversationDrawerContent(
+                    vm = vm,
+                    onClose = { scope.launch { drawerState.close() } },
+                )
             }
         },
     ) {
