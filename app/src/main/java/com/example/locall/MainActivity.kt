@@ -21,6 +21,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.example.locall.ui.assistant.ConversationScreen
 import com.example.locall.ui.assistant.SetupSheetContent
+import com.example.locall.ui.components.FlaskIcon
 import com.example.locall.ui.theme.LocaLLTheme
 import com.example.locall.voice.agent.follow.FollowUpManager
 import com.example.locall.voice.assistant.AssistantViewModel
@@ -51,13 +52,11 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AppRoot(vm: AssistantViewModel) {
     val context = LocalContext.current
     var showPerfLab by remember { mutableStateOf(false) }
-    var showMenu by remember { mutableStateOf(false) }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
     // Ask for notification-post permission once (Android 13+), as the old screen did.
@@ -76,28 +75,35 @@ private fun AppRoot(vm: AssistantViewModel) {
         ActivityResultContracts.OpenDocument(),
     ) { uri -> uri?.let { KnowledgeImport.importFile(context, vm, it) } }
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.background,
-    ) { pad ->
-        if (showPerfLab) {
-            PerfLabHost(onBack = { showPerfLab = false }, modifier = Modifier.padding(pad))
-        } else {
-            ConversationScreen(
-                vm = vm,
-                modifier = Modifier.padding(pad),
-                onOpenMenu = { showMenu = true },
-                onOpenPerfLab = { showPerfLab = true },
-                onAttachDocument = {
-                    importLauncher.launch(arrayOf("text/plain", "text/markdown", "text/*"))
-                },
-            )
-        }
-    }
-
-    if (showMenu) {
-        ModalBottomSheet(onDismissRequest = { showMenu = false }, sheetState = sheetState) {
-            SetupSheetContent()
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        gesturesEnabled = drawerState.isOpen,
+        drawerContent = {
+            ModalDrawerSheet(
+                drawerContainerColor = MaterialTheme.colorScheme.surface,
+                modifier = Modifier.widthIn(max = 348.dp),
+            ) {
+                SetupSheetContent()
+            }
+        },
+    ) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = MaterialTheme.colorScheme.background,
+        ) { pad ->
+            if (showPerfLab) {
+                PerfLabHost(onBack = { showPerfLab = false }, modifier = Modifier.padding(pad))
+            } else {
+                ConversationScreen(
+                    vm = vm,
+                    modifier = Modifier.padding(pad),
+                    onOpenMenu = { scope.launch { drawerState.open() } },
+                    onOpenPerfLab = { showPerfLab = true },
+                    onAttachDocument = {
+                        importLauncher.launch(arrayOf("text/plain", "text/markdown", "text/*"))
+                    },
+                )
+            }
         }
     }
 }
@@ -110,6 +116,8 @@ private fun PerfLabHost(onBack: () -> Unit, modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack) { Text("←", fontSize = 22.sp) }
+            FlaskIcon(Modifier.size(22.dp))
+            Spacer(Modifier.width(10.dp))
             Text("Performance Lab", style = MaterialTheme.typography.titleMedium)
         }
         PerformanceLabScreen(modifier = Modifier.weight(1f))

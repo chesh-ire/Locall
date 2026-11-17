@@ -7,6 +7,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,6 +37,10 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -44,11 +49,63 @@ import androidx.compose.ui.unit.sp
 import com.example.locall.ui.theme.Cyan
 import com.example.locall.ui.theme.CyanBright
 import com.example.locall.ui.theme.Magenta
+import com.example.locall.ui.theme.SignalGreen
 import com.example.locall.ui.theme.SignalRed
 import com.example.locall.ui.theme.Violet
 import com.example.locall.ui.theme.VioletBright
 
 fun brandBrush(): Brush = Brush.linearGradient(listOf(VioletBright, Cyan))
+
+/**
+ * The Perf Lab mark: a green Erlenmeyer lab flask, drawn as a vector so it stays crisp at any size.
+ */
+@Composable
+fun FlaskIcon(modifier: Modifier = Modifier, tint: Color = SignalGreen) {
+    Canvas(Modifier.size(22.dp).then(modifier)) {
+        val w = size.width
+        val h = size.height
+        fun px(f: Float) = w * f
+        fun py(f: Float) = h * f
+        val stroke = minOf(w, h) * 0.085f
+
+        // Flask outline: narrow neck flaring into a rounded conical body.
+        val body = Path().apply {
+            moveTo(px(0.38f), py(0.12f))
+            lineTo(px(0.38f), py(0.40f))
+            lineTo(px(0.16f), py(0.80f))
+            cubicTo(px(0.12f), py(0.90f), px(0.17f), py(0.93f), px(0.26f), py(0.93f))
+            lineTo(px(0.74f), py(0.93f))
+            cubicTo(px(0.83f), py(0.93f), px(0.88f), py(0.90f), px(0.84f), py(0.80f))
+            lineTo(px(0.62f), py(0.40f))
+            lineTo(px(0.62f), py(0.12f))
+        }
+        // Liquid pooled in the lower body.
+        val liquidTop = 0.58f
+        val liquid = Path().apply {
+            moveTo(px(0.275f), py(liquidTop))
+            lineTo(px(0.16f), py(0.80f))
+            cubicTo(px(0.12f), py(0.90f), px(0.17f), py(0.93f), px(0.26f), py(0.93f))
+            lineTo(px(0.74f), py(0.93f))
+            cubicTo(px(0.83f), py(0.93f), px(0.88f), py(0.90f), px(0.84f), py(0.80f))
+            lineTo(px(0.725f), py(liquidTop))
+            close()
+        }
+        drawPath(liquid, color = tint.copy(alpha = 0.35f))
+        drawPath(
+            body,
+            color = tint,
+            style = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round),
+        )
+        // Flask lip.
+        drawLine(
+            color = tint,
+            start = Offset(px(0.33f), py(0.12f)),
+            end = Offset(px(0.67f), py(0.12f)),
+            strokeWidth = stroke,
+            cap = StrokeCap.Round,
+        )
+    }
+}
 
 private fun recordingBrush(): Brush = Brush.linearGradient(listOf(SignalRed, Magenta))
 
@@ -57,6 +114,7 @@ fun BrandHeader(
     title: String,
     subtitle: String? = null,
     modifier: Modifier = Modifier,
+    leading: (@Composable () -> Unit)? = null,
     trailing: @Composable (() -> Unit)? = null,
 ) {
     Row(
@@ -65,13 +123,17 @@ fun BrandHeader(
             .padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            Modifier
-                .height(34.dp)
-                .width(5.dp)
-                .clip(RoundedCornerShape(3.dp))
-                .background(brandBrush()),
-        )
+        if (leading != null) {
+            leading()
+        } else {
+            Box(
+                Modifier
+                    .height(34.dp)
+                    .width(5.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(brandBrush()),
+            )
+        }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
@@ -268,11 +330,20 @@ fun BrandBackground(modifier: Modifier = Modifier, content: @Composable () -> Un
         modifier
             .fillMaxSize()
             .drawBehind {
+                // Violet aurora up top…
                 drawRect(
                     Brush.radialGradient(
-                        colors = listOf(Violet.copy(alpha = 0.10f), Color.Transparent),
-                        center = Offset(size.width * 0.5f, size.height * 0.12f),
-                        radius = size.width * 0.9f,
+                        colors = listOf(Violet.copy(alpha = 0.14f), Color.Transparent),
+                        center = Offset(size.width * 0.5f, size.height * 0.06f),
+                        radius = size.width * 0.95f,
+                    ),
+                )
+                // …with a cool cyan wash drifting up from the lower corner.
+                drawRect(
+                    Brush.radialGradient(
+                        colors = listOf(Cyan.copy(alpha = 0.07f), Color.Transparent),
+                        center = Offset(size.width * 0.12f, size.height * 0.92f),
+                        radius = size.width * 0.8f,
                     ),
                 )
             },

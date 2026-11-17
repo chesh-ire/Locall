@@ -31,6 +31,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.locall.ui.components.BrandBackground
+import com.example.locall.ui.components.FlaskIcon
 import com.example.locall.ui.components.PillTone
 import com.example.locall.ui.components.StatusPill
 import com.example.locall.ui.components.brandBrush
@@ -151,7 +152,7 @@ private fun TopBar(
         }
         if (busy) StatusPill(text = "Working", tone = PillTone.Active, modifier = Modifier.padding(end = 4.dp))
         if (canClear) IconButton(onClick = onClear) { Text("🧹", fontSize = 18.sp) }
-        IconButton(onClick = onOpenPerfLab) { Text("📊", fontSize = 20.sp) }
+        IconButton(onClick = onOpenPerfLab) { FlaskIcon(Modifier.size(22.dp)) }
     }
 }
 

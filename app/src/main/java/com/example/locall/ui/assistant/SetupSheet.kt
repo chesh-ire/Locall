@@ -9,6 +9,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -59,7 +61,11 @@ fun SetupSheetContent() {
     val notifAccess = NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
 
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp),
+        Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp)
+            .padding(top = 16.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Text("Connections & permissions", style = MaterialTheme.typography.titleLarge)

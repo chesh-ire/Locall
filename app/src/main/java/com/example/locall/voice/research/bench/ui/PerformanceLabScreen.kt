@@ -14,6 +14,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.example.locall.ui.components.BrandHeader
+import com.example.locall.ui.components.FlaskIcon
 import com.example.locall.voice.research.bench.BenchConfig
 import com.example.locall.voice.research.bench.BenchRunner
 import com.example.locall.voice.research.bench.BenchmarkRunState
@@ -46,6 +47,7 @@ fun PerformanceLabScreen(modifier: Modifier = Modifier) {
         BrandHeader(
             title = "Perf Lab",
             subtitle = "Benchmark the on-device engine",
+            leading = { FlaskIcon(Modifier.size(30.dp)) },
         )
         TabRow(
             selectedTabIndex = tab,
