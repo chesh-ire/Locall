@@ -173,11 +173,11 @@ class AssistantViewModel private constructor(appContext: Context) {
                     c,
                 )
                 clearStatus()
-                addAndPersist(ChatMessage(nextId(), ChatRole.ERROR, "⏹️ Cancelled."))
+                addAndPersist(ChatMessage(nextId(), ChatRole.ERROR, "Cancelled."))
             } catch (t: Throwable) {
                 Log.w(TAG, "LIFECYCLE req#$reqId FAILED", t)
                 clearStatus()
-                addAndPersist(ChatMessage(nextId(), ChatRole.ERROR, "⚠️ Something went wrong: ${t.javaClass.simpleName}"))
+                addAndPersist(ChatMessage(nextId(), ChatRole.ERROR, "Something went wrong: ${t.javaClass.simpleName}"))
             } finally {
                 Log.i(TAG, "LIFECYCLE req#$reqId FINALLY: releasing foreground + phase→Idle")
                 pendingConfirm = null
@@ -210,10 +210,10 @@ class AssistantViewModel private constructor(appContext: Context) {
                     clearStatus()
                     addAndPersist(ChatMessage(nextId(), ChatRole.ASSISTANT, result.ifBlank { "Done." }, capability = capability))
                 } catch (c: kotlinx.coroutines.CancellationException) {
-                    clearStatus(); addAndPersist(ChatMessage(nextId(), ChatRole.ERROR, "⏹️ Cancelled."))
+                    clearStatus(); addAndPersist(ChatMessage(nextId(), ChatRole.ERROR, "Cancelled."))
                 } catch (t: Throwable) {
                     Log.w(TAG, "task failed", t)
-                    clearStatus(); addAndPersist(ChatMessage(nextId(), ChatRole.ERROR, "⚠️ ${t.javaClass.simpleName}"))
+                    clearStatus(); addAndPersist(ChatMessage(nextId(), ChatRole.ERROR, "${t.javaClass.simpleName}"))
                 } finally {
                     requestJob = null
                     runCatching { AssistantForegroundService.stop(app) }

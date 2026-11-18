@@ -69,7 +69,7 @@ class ToolExecutor(context: Context) {
         is AgentTool.ExtractTasks -> extractTasks(tool.ref, convo, io)
         is AgentTool.DiscussMessage -> discuss(tool.ref, convo, io)
         is AgentTool.Chat -> chat(tool.text, convo, contextBlock)
-        is AgentTool.Unknown -> Result("🤷 I didn't catch what you'd like me to do.")
+        is AgentTool.Unknown -> Result("I didn't catch what you'd like me to do.")
     }
 
     private suspend fun briefInbox(convo: ConversationManager, io: Io): Result {
@@ -77,7 +77,7 @@ class ToolExecutor(context: Context) {
         if (b.isEmpty) {
             val msg = if (b.gmailConnected) "You're all caught up — nothing new needs your attention."
                 else "Nothing new to brief. Connect Gmail in LocaLL to include your email."
-            return Result("📭 $msg", msg)
+            return Result("$msg", msg)
         }
         val spoken = buildString {
             append("You have ${b.items.size} message${plural(b.items.size)} worth noting. ")
@@ -94,7 +94,7 @@ class ToolExecutor(context: Context) {
         }
         (b.needsReply.firstOrNull() ?: b.actions.firstOrNull() ?: b.items.first()).let { convo.focusMessage(it.id) }
         val display = buildString {
-            append("📨 Inbox briefing (${b.items.size})\n")
+            append("Inbox briefing (${b.items.size})\n")
             b.items.forEach { append("• [${MessageClass.label(it.classification)}] ${it.sender}: ${it.summary}\n") }
         }
         return Result(display.trim(), spoken, continueConversation = true)
@@ -103,13 +103,13 @@ class ToolExecutor(context: Context) {
     private suspend fun listTasks(convo: ConversationManager): Result {
         val (text, ids) = ctxBuilder.taskList()
         convo.rememberTaskList(ids)
-        return Result("✅ Your tasks:\n$text", text)
+        return Result("Your tasks:\n$text", text)
     }
 
     private suspend fun planDay(): Result {
         val now = System.currentTimeMillis()
         val open = tasks.open()
-        if (open.isEmpty()) return Result("🗓️ Your day is clear — no open tasks.", "Your day is clear. You have no open tasks.")
+        if (open.isEmpty()) return Result("Your day is clear — no open tasks.", "Your day is clear. You have no open tasks.")
         val ordered = open.sortedWith(
             compareByDescending<TaskEntity> { it.dueAtMs != null && it.dueAtMs < now }
                 .thenByDescending { it.priority }
@@ -123,7 +123,7 @@ class ToolExecutor(context: Context) {
                 append(". ")
             }
         }
-        val display = "🗓️ Plan for today:\n" + ordered.take(10).mapIndexed { i, t ->
+        val display = "Plan for today:\n" + ordered.take(10).mapIndexed { i, t ->
             val tag = when {
                 t.dueAtMs != null && t.dueAtMs < now -> " (overdue)"
                 t.dueAtMs != null -> " (due ${ContextBuilder.fmtDate(t.dueAtMs)})"
@@ -148,80 +148,80 @@ class ToolExecutor(context: Context) {
         if (due != null) FollowUpManager.schedule(app, t.id, t.title, due)
         val whenStr = due?.let { " for ${ContextBuilder.fmtDate(it)}" } ?: ""
         val msg = "Added: ${t.title}$whenStr." + if (due != null) " I'll remind you." else ""
-        return Result("➕ $msg", msg)
+        return Result("$msg", msg)
     }
 
     private suspend fun completeTask(ref: String, convo: ConversationManager): Result {
-        val t = resolveTask(ref, convo) ?: return Result("🔍 I couldn't find that task.", "I couldn't find that task.")
+        val t = resolveTask(ref, convo) ?: return Result("I couldn't find that task.", "I couldn't find that task.")
         tasks.complete(t.id)
         FollowUpManager.cancel(app, t.id)
         val goalDone = t.goalId?.let { progress.maybeCompleteGoal(it) } ?: false
         val msg = "Done: ${t.title}." + if (goalDone) " That completes the whole goal — nice work!" else ""
-        return Result("✔️ $msg", msg)
+        return Result("$msg", msg)
     }
 
     private suspend fun deleteTask(ref: String, convo: ConversationManager): Result {
-        val t = resolveTask(ref, convo) ?: return Result("🔍 I couldn't find that task.", "I couldn't find that task.")
+        val t = resolveTask(ref, convo) ?: return Result("I couldn't find that task.", "I couldn't find that task.")
         FollowUpManager.cancel(app, t.id)
         tasks.delete(t.id)
-        return Result("🗑️ Deleted: ${t.title}.", "Deleted ${t.title}.")
+        return Result("Deleted: ${t.title}.", "Deleted ${t.title}.")
     }
 
     private suspend fun postponeTask(tool: AgentTool.PostponeTask, convo: ConversationManager): Result {
-        val t = resolveTask(tool.ref, convo) ?: return Result("🔍 I couldn't find that task.", "I couldn't find that task.")
+        val t = resolveTask(tool.ref, convo) ?: return Result("I couldn't find that task.", "I couldn't find that task.")
         val until = DateParser.parse(tool.whenPhrase)
         tasks.postpone(t.id, until)
         until?.let { FollowUpManager.schedule(app, t.id, t.title, it) }
         val whenStr = until?.let { " to ${ContextBuilder.fmtDate(it)}" } ?: ""
-        return Result("⏳ Postponed ${t.title}$whenStr.", "Postponed ${t.title}$whenStr.")
+        return Result("Postponed ${t.title}$whenStr.", "Postponed ${t.title}$whenStr.")
     }
 
     private suspend fun remindTask(tool: AgentTool.RemindTask, convo: ConversationManager): Result {
         val t = resolveTask(tool.ref, convo)
         val at = DateParser.parse(tool.whenPhrase)
-            ?: return Result("⚠️ I couldn't work out when to remind you.", "I couldn't work out when to remind you.")
+            ?: return Result("I couldn't work out when to remind you.", "I couldn't work out when to remind you.")
         return if (t != null) {
             FollowUpManager.schedule(app, t.id, t.title, at)
-            Result("⏰ I'll remind you about ${t.title} at ${ContextBuilder.fmtDate(at)}.",
+            Result("I'll remind you about ${t.title} at ${ContextBuilder.fmtDate(at)}.",
                 "I'll remind you about ${t.title} at ${ContextBuilder.fmtDate(at)}.")
         } else {
             val created = tasks.create(title = tool.ref.ifBlank { "Reminder" }, dueAtMs = at)
             FollowUpManager.schedule(app, created.id, created.title, at)
-            Result("⏰ Reminder set for ${ContextBuilder.fmtDate(at)}.", "Okay, I'll remind you at ${ContextBuilder.fmtDate(at)}.")
+            Result("Reminder set for ${ContextBuilder.fmtDate(at)}.", "Okay, I'll remind you at ${ContextBuilder.fmtDate(at)}.")
         }
     }
 
     private suspend fun planGoal(tool: AgentTool.PlanGoal, convo: ConversationManager, io: Io, contextBlock: String = ""): Result {
         if (tool.goal.isBlank()) return Result("What goal should I plan?", "What goal should I plan for you?")
         val plan = planner.propose(app, tool.goal, contextBlock, tool.horizonDays, io.onStatus)
-        if (plan.isEmpty) return Result("⚠️ I couldn't break that into steps.", "I couldn't break that goal into steps.")
+        if (plan.isEmpty) return Result("I couldn't break that into steps.", "I couldn't break that goal into steps.")
         val preview = plan.steps.take(6).mapIndexed { i, s -> "${i + 1}. ${s.title}" }.joinToString("; ")
         val ask = "I've drafted a ${plan.steps.size}-step plan: $preview. Shall I save it and schedule reminders?"
-        if (!io.confirm(ask)) return Result("❌ Plan not saved.\n$preview", "Okay, I won't save it.")
+        if (!io.confirm(ask)) return Result("Plan not saved.\n$preview", "Okay, I won't save it.")
         val goal = goals.create(tool.goal, "", targetDateMs = System.currentTimeMillis() + tool.horizonDays.toLong() * 86_400_000L)
         val created = planner.commit(goal, plan)
         created.forEach { t -> t.dueAtMs?.let { FollowUpManager.schedule(app, t.id, t.title, it) } }
         convo.focusGoal(goal.id)
         val msg = "Saved your plan for ${tool.goal} with ${created.size} tasks and reminders."
-        val display = "🎯 ${tool.goal}\n" + created.mapIndexed { i, t ->
+        val display = "${tool.goal}\n" + created.mapIndexed { i, t ->
             "${i + 1}. ${t.title}" + (t.dueAtMs?.let { " — ${ContextBuilder.fmtDate(it)}" } ?: "")
         }.joinToString("\n")
         return Result(display, msg)
     }
 
     private suspend fun goalProgress(ref: String, convo: ConversationManager): Result {
-        val goal = resolveGoal(ref, convo) ?: return Result("🔍 I couldn't find that goal.", "I couldn't find that goal.")
+        val goal = resolveGoal(ref, convo) ?: return Result("I couldn't find that goal.", "I couldn't find that goal.")
         val p = progress.forGoal(goal.id)
         convo.focusGoal(goal.id)
         val next = p.nextTask?.let { " Next up: ${it.title}." } ?: ""
         val replan = if (p.needsReplan) " You have ${p.overdue} overdue; say \"replan\" and I'll adjust." else ""
         val msg = "${goal.title}: ${p.done} of ${p.total} done, ${p.pct}%.$next$replan"
-        return Result("📈 $msg", msg)
+        return Result("$msg", msg)
     }
 
     private suspend fun reply(tool: AgentTool.ReplyTo, convo: ConversationManager, io: Io): Result {
         val item = resolveInbox(tool.ref, convo)
-            ?: return Result("🔍 I couldn't find that message.", "I couldn't find the message to reply to.")
+            ?: return Result("I couldn't find that message.", "I couldn't find the message to reply to.")
         convo.focusMessage(item.id)
         return when (item.source) {
             InboxSource.GMAIL -> gmailReply(item, tool.body, io)
@@ -232,61 +232,61 @@ class ToolExecutor(context: Context) {
     private suspend fun gmailReply(item: InboxItemEntity, intent: String, io: Io): Result {
         val token = when (val r = GmailAuth.acquire(app)) {
             is GmailAuth.Result.Token -> r.accessToken
-            is GmailAuth.Result.NeedsConsent -> return Result("📧 Connect Gmail in LocaLL first.", "Please connect Gmail first.")
-            is GmailAuth.Result.Error -> return Result("⚠️ Gmail error: ${r.message}", "I couldn't reach Gmail.")
+            is GmailAuth.Result.NeedsConsent -> return Result("Connect Gmail in LocaLL first.", "Please connect Gmail first.")
+            is GmailAuth.Result.Error -> return Result("Gmail error: ${r.message}", "I couldn't reach Gmail.")
         }
         val msgId = item.threadRef.ifBlank { item.id.removePrefix("gmail:") }
         return try {
             val rctx = GmailApi.replyContext(token, msgId)
-            if (rctx.toEmail.isBlank()) return Result("⚠️ Couldn't tell who to reply to.", "I couldn't tell who to reply to.")
+            if (rctx.toEmail.isBlank()) return Result("Couldn't tell who to reply to.", "I couldn't tell who to reply to.")
             val who = EmailSummarizer.cleanFrom(rctx.fromRaw).ifBlank { item.sender }
             val subject = if (rctx.subject.startsWith("Re:", true)) rctx.subject else "Re: ${rctx.subject}"
             val body = emailRepo.body(token, msgId)
             val brief = EmailReplyWriter.ReplyBrief(who, rctx.subject, body, "")
-            val intended = intent.ifBlank { askIntent(io, who) ?: return Result("📝 No reply sent.", "Okay, maybe later.") }
+            val intended = intent.ifBlank { askIntent(io, who) ?: return Result("No reply sent.", "Okay, maybe later.") }
             var draft = EmailReplyWriter.draft(app, brief, intended)
             var prompt = "Here's a reply to $who. $draft. Send it, change it, or cancel?"
             repeat(5) {
                 val r = io.listen(prompt)
                 when {
-                    r.isNullOrBlank() -> return Result("📝 Not sent — I didn't catch your answer.\n$draft", "I didn't catch that, so I left it as a draft.")
+                    r.isNullOrBlank() -> return Result("Not sent — I didn't catch your answer.\n$draft", "I didn't catch that, so I left it as a draft.")
                     ActionConfirmation.isApproval(r) -> {
                         GmailApi.sendReply(token, rctx.toEmail, subject, draft, rctx.threadId, rctx.messageIdHeader, rctx.references)
                         inbox.markHandled(item.id)
                         return Result("↩️ Replied to $who\n$subject\n$draft", "Replied to $who.")
                     }
-                    ActionConfirmation.isCancellation(r) -> return Result("❌ Not sent.\n$draft", "Okay, I won't send it.")
+                    ActionConfirmation.isCancellation(r) -> return Result("Not sent.\n$draft", "Okay, I won't send it.")
                     else -> { draft = EmailReplyWriter.refine(app, brief, draft, r); prompt = "How about this. $draft. Send, change, or cancel?" }
                 }
             }
-            Result("📝 Left as a draft:\n$draft", "I'll leave that as a draft.")
+            Result("Left as a draft:\n$draft", "I'll leave that as a draft.")
         } catch (e: GmailApi.Unauthorized) {
-            GmailAuth.invalidate(); Result("⚠️ Gmail access expired — reconnect in LocaLL.", "Gmail access expired.")
+            GmailAuth.invalidate(); Result("Gmail access expired — reconnect in LocaLL.", "Gmail access expired.")
         } catch (t: Throwable) {
-            Log.w(TAG, "gmailReply failed", t); Result("⚠️ Reply failed: ${t.javaClass.simpleName}", "Something went wrong sending that reply.")
+            Log.w(TAG, "gmailReply failed", t); Result("Reply failed: ${t.javaClass.simpleName}", "Something went wrong sending that reply.")
         }
     }
 
     private suspend fun whatsappReply(item: InboxItemEntity, intent: String, io: Io): Result {
         val svc = VoiceAccessibilityService.instance
-            ?: return Result("⚠️ Enable Accessibility to send WhatsApp replies.", "Enable Accessibility to send WhatsApp replies.")
-        val intended = intent.ifBlank { askIntent(io, item.sender) ?: return Result("📝 No reply sent.", "Okay, maybe later.") }
+            ?: return Result("Enable Accessibility to send WhatsApp replies.", "Enable Accessibility to send WhatsApp replies.")
+        val intended = intent.ifBlank { askIntent(io, item.sender) ?: return Result("No reply sent.", "Okay, maybe later.") }
         val decodeThreads = ThermalGovernor.decodeThreads(app)
         val draft = try {
             LlmBridge.generateReply(intended, decodeThreads)
         } catch (t: Throwable) {
-            return Result("⚠️ Couldn't draft a reply.", "I couldn't draft that reply.")
+            return Result("Couldn't draft a reply.", "I couldn't draft that reply.")
         }
-        if (!io.confirm("Send to ${item.sender}: \"$draft\"?")) return Result("❌ Not sent.\n$draft", "Okay, not sent.")
+        if (!io.confirm("Send to ${item.sender}: \"$draft\"?")) return Result("Not sent.\n$draft", "Okay, not sent.")
         svc.readLastMessage(item.threadRef.ifBlank { item.sender })
         val typed = svc.execute(CommandAction.TypeText(draft, append = false))
-        if (!typed) return Result("⚠️ Opened the chat but couldn't type the reply.", "I opened the chat but couldn't type the reply.")
+        if (!typed) return Result("Opened the chat but couldn't type the reply.", "I opened the chat but couldn't type the reply.")
         val sent = svc.execute(CommandAction.SendMessage)
         return if (sent) {
             inbox.markHandled(item.id)
-            Result("📤 Sent to ${item.sender}: $draft", "Sent to ${item.sender}.")
+            Result("Sent to ${item.sender}: $draft", "Sent to ${item.sender}.")
         } else {
-            Result("✍️ Typed the reply to ${item.sender}; tap send to confirm.", "I typed it; tap send to confirm.")
+            Result("Typed the reply to ${item.sender}; tap send to confirm.", "I typed it; tap send to confirm.")
         }
     }
 
@@ -296,7 +296,7 @@ class ToolExecutor(context: Context) {
     }
 
     private suspend fun extractTasks(ref: String, convo: ConversationManager, io: Io): Result {
-        val item = resolveInbox(ref, convo) ?: return Result("🔍 I couldn't find that message.", "I couldn't find that message.")
+        val item = resolveInbox(ref, convo) ?: return Result("I couldn't find that message.", "I couldn't find that message.")
         val already = tasks.forInboxItem(item.id)
         if (already.isNotEmpty()) {
             val titles = already.joinToString("; ") { it.title }
@@ -305,14 +305,14 @@ class ToolExecutor(context: Context) {
         io.onStatus("Loading AI model…"); LlmBridge.ensureLoaded(app, io.onStatus)
         val body = messageBody(item)
         val created = taskExtractor.extract(app, item, body)
-        if (created.isEmpty()) return Result("✅ No action items found in that message.", "I didn't find anything you need to do in that message.")
+        if (created.isEmpty()) return Result("No action items found in that message.", "I didn't find anything you need to do in that message.")
         created.forEach { t -> t.dueAtMs?.let { FollowUpManager.schedule(app, t.id, t.title, it) } }
         val titles = created.joinToString("; ") { it.title }
-        return Result("➕ Added ${created.size} task${plural(created.size)}: $titles", "I added ${created.size} task${plural(created.size)}: $titles")
+        return Result("Added ${created.size} task${plural(created.size)}: $titles", "I added ${created.size} task${plural(created.size)}: $titles")
     }
 
     private suspend fun discuss(ref: String, convo: ConversationManager, io: Io): Result {
-        val item = resolveInbox(ref, convo) ?: return Result("🔍 I couldn't find that message.", "I couldn't find that message.")
+        val item = resolveInbox(ref, convo) ?: return Result("I couldn't find that message.", "I couldn't find that message.")
         convo.focusMessage(item.id)
         inbox.markReviewed(item.id)
         io.onStatus("Loading AI model…"); LlmBridge.ensureLoaded(app, io.onStatus)
@@ -325,7 +325,7 @@ class ToolExecutor(context: Context) {
             )
         else MessageClassifier.classify(app, item).summary
         val spoken = "From ${item.sender}. $summary. What would you like to do — reply, make a task, or ask something?"
-        return Result("💬 ${item.sender} — ${item.title}\n$summary", spoken, continueConversation = true)
+        return Result("${item.sender} — ${item.title}\n$summary", spoken, continueConversation = true)
     }
 
     private suspend fun chat(text: String, convo: ConversationManager, contextBlock: String = ""): Result {
@@ -350,7 +350,7 @@ class ToolExecutor(context: Context) {
         } catch (t: Throwable) {
             Log.w(TAG, "chat failed", t); "I'm not sure about that."
         }.ifBlank { "I'm not sure about that." }
-        return Result("🧠 $answer", answer)
+        return Result("$answer", answer)
     }
 
     private suspend fun resolveTask(ref: String, convo: ConversationManager): TaskEntity? {

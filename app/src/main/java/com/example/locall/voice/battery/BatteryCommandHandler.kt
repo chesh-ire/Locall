@@ -32,18 +32,18 @@ class BatteryCommandHandler(appContext: Context) {
         if (recommendations.isEmpty()) {
             val msg = "You're at ${before.batteryPercent}% and already set up to save power — nothing to change."
             speak(msg)
-            return "🔋 ${before.batteryPercent}% — nothing to change"
+            return "${before.batteryPercent}% — nothing to change"
         }
 
         if (recommendations.any { it.action.needsWriteSettings } && !before.canWriteSettings) {
             requestWriteSettings()
             speak("I need permission to change system settings. I've opened the screen — allow LocaLL, then ask again.")
-            return "⚙️ grant “Modify system settings” to LocaLL, then try again"
+            return "grant “Modify system settings” to LocaLL, then try again"
         }
 
         val plan = recommendations.joinToString("; ") { it.label }
         if (!confirm("apply these power-saving changes: $plan")) {
-            return "❌ cancelled — left your settings as they were"
+            return "cancelled — left your settings as they were"
         }
 
         onStatus("Applying…")
@@ -54,7 +54,7 @@ class BatteryCommandHandler(appContext: Context) {
         val applied = results.filter { it.applied }
         if (applied.isEmpty()) {
             speak("I couldn't apply those changes.")
-            return "⚠️ couldn't apply power-saving changes"
+            return "couldn't apply power-saving changes"
         }
 
         onStatus("Summarising…")
@@ -62,7 +62,7 @@ class BatteryCommandHandler(appContext: Context) {
         speak(summary)
 
         val verified = applied.count { it.verified }
-        return "🔋 applied ${applied.size} change${if (applied.size == 1) "" else "s"}" +
+        return "applied ${applied.size} change${if (applied.size == 1) "" else "s"}" +
             (if (verified > 0) " ($verified verified)" else "")
     }
 

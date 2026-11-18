@@ -47,7 +47,7 @@ class EmailCommandHandler(appContext: Context) {
         Log.i(TAG, "transcript=\"$transcript\" -> $intent")
 
         if (intent is EmailIntent.Unknown) {
-            return "🤷 didn't catch what to do with your email"
+            return "didn't catch what to do with your email"
         }
 
         // Summarising needs the on-device LLM; the fast-path (resolve) skips the load the parser path does.
@@ -60,19 +60,19 @@ class EmailCommandHandler(appContext: Context) {
         val token = when (val r = GmailAuth.acquire(app)) {
             is GmailAuth.Result.Token -> r.accessToken
             is GmailAuth.Result.NeedsConsent ->
-                return "📧 Open LocaLL and tap “Connect Gmail” to grant access first"
+                return "Open LocaLL and tap “Connect Gmail” to grant access first"
             is GmailAuth.Result.Error ->
-                return "⚠️ couldn't connect to Gmail: ${r.message}"
+                return "couldn't connect to Gmail: ${r.message}"
         }
 
         return try {
             execute(context, token, intent, confirm, speak, listen)
         } catch (e: GmailApi.Unauthorized) {
             GmailAuth.invalidate()
-            "⚠️ Gmail access expired — reconnect in LocaLL and try again"
+            "Gmail access expired — reconnect in LocaLL and try again"
         } catch (t: Throwable) {
             Log.w(TAG, "execute failed", t)
-            "⚠️ email command failed: ${t.javaClass.simpleName}"
+            "email command failed: ${t.javaClass.simpleName}"
         }
     }
 
@@ -101,7 +101,7 @@ class EmailCommandHandler(appContext: Context) {
 
         is EmailIntent.ReadLatest -> {
             val ids = GmailApi.list(token, "in:inbox", max = intent.count.coerceIn(1, 3))
-            if (ids.isEmpty()) return "📭 your inbox is empty"
+            if (ids.isEmpty()) return "your inbox is empty"
             val m = repo.metadata(token, ids.first())
             val body = repo.body(token, ids.first())
             session.remember(ids.first(), EmailSummarizer.cleanFrom(m.from), m.subject, body)
@@ -109,14 +109,14 @@ class EmailCommandHandler(appContext: Context) {
                 "Subject: ${m.subject.ifBlank { "no subject" }}. " +
                 body.take(600).ifBlank { m.snippet }
             speak(spoken)
-            "📨 ${EmailSummarizer.cleanFrom(m.from)} — ${m.subject.ifBlank { "(no subject)" }}"
+            "${EmailSummarizer.cleanFrom(m.from)} — ${m.subject.ifBlank { "(no subject)" }}"
         }
 
         is EmailIntent.Summarize -> {
             if (intent.count == 1) {
                 // "summarise the last email" → summarise that ONE email's actual content, not an overview.
                 val ids = GmailApi.list(token, ensureInbox(intent.query), max = 1)
-                if (ids.isEmpty()) { speak("You have no recent emails to summarise."); return "📭 nothing to summarise" }
+                if (ids.isEmpty()) { speak("You have no recent emails to summarise."); return "nothing to summarise" }
                 val m = repo.metadata(token, ids.first())
                 val body = repo.body(token, ids.first())
                 session.remember(ids.first(), EmailSummarizer.cleanFrom(m.from), m.subject, body)
@@ -124,12 +124,12 @@ class EmailCommandHandler(appContext: Context) {
                 Log.i(TAG, "summary(latest from ${m.from}): $summary")
                 speak(summary)
                 // Return the summary itself so it's readable even if TTS is unavailable.
-                return "📋 ${EmailSummarizer.cleanFrom(m.from)}: $summary"
+                return "${EmailSummarizer.cleanFrom(m.from)}: $summary"
             }
             val (messages, fromCache) = repo.listMessages(
                 token, intent.query, max = intent.count, scope = EmailRepository.CacheScope.RECENT_INBOX,
             )
-            if (messages.isEmpty()) { speak("You have no emails matching that."); return "📭 nothing to summarise" }
+            if (messages.isEmpty()) { speak("You have no emails matching that."); return "nothing to summarise" }
             // Summarise ALL emails in ONE LLM call, then speak them as a SINGLE continuous narration.
             // This is what keeps the time BETWEEN emails under a second: there's no per-email thinking
             // pause and no per-utterance synthesis gap — the whole review is one uninterrupted read.
@@ -149,9 +149,9 @@ class EmailCommandHandler(appContext: Context) {
             Log.i(TAG, "narrating $total emails in one pass (${narration.length} chars)")
             speak(narration)
             val lines = messages.mapIndexed { i, m ->
-                "📨 ${i + 1}. ${EmailSummarizer.cleanFrom(m.from)} — ${m.subject.ifBlank { "(no subject)" }}: ${summaries[i]}"
+                "${i + 1}. ${EmailSummarizer.cleanFrom(m.from)} — ${m.subject.ifBlank { "(no subject)" }}: ${summaries[i]}"
             }.joinToString("\n")
-            "📋 ${cachePrefix(fromCache)}Read $total email${if (total == 1) "" else "s"}:\n$lines"
+            "${cachePrefix(fromCache)}Read $total email${if (total == 1) "" else "s"}:\n$lines"
         }
 
         is EmailIntent.SummarizeThread -> handleSummarizeThread(context, token, intent, speak, listen)
@@ -163,10 +163,10 @@ class EmailCommandHandler(appContext: Context) {
                 token, "is:important is:unread in:inbox", max = 15,
                 scope = EmailRepository.CacheScope.IMPORTANT_UNREAD,
             )
-            if (messages.isEmpty()) { speak("Nothing important right now."); return "✅ nothing important" }
+            if (messages.isEmpty()) { speak("Nothing important right now."); return "nothing important" }
             val summary = EmailSummarizer.summarize(context, messages)
             speak(cachePrefix(fromCache) + summary)
-            "⭐ ${messages.size} important email${plural(messages.size)}${cacheTag(fromCache)}"
+            "${messages.size} important email${plural(messages.size)}${cacheTag(fromCache)}"
         }
 
         is EmailIntent.UnreadCount -> {
@@ -176,54 +176,54 @@ class EmailCommandHandler(appContext: Context) {
                 if (e is GmailApi.Unauthorized) throw e
                 val cached = repo.unreadCountCached()
                 speak("You're offline. You had $cached unread email${plural(cached)} at last sync.")
-                return "✉️ $cached unread (cached)"
+                return "$cached unread (cached)"
             }
             val msg = if (n == 0) "You have no unread emails." else "You have $n unread email${plural(n)}."
             speak(msg)
-            "✉️ $n unread"
+            "$n unread"
         }
 
         is EmailIntent.MarkAllRead -> {
             val ids = GmailApi.list(token, intent.query)
-            if (ids.isEmpty()) return "✅ nothing unread to mark"
-            if (!confirm("mark ${ids.size} email${plural(ids.size)} as read?")) return "❌ cancelled"
+            if (ids.isEmpty()) return "nothing unread to mark"
+            if (!confirm("mark ${ids.size} email${plural(ids.size)} as read?")) return "cancelled"
             GmailApi.markRead(token, ids)
             repo.onMarkedRead(ids)
-            "✅ marked ${ids.size} as read"
+            "marked ${ids.size} as read"
         }
 
         is EmailIntent.Archive -> {
             val ids = GmailApi.list(token, ensureInbox(intent.query))
-            if (ids.isEmpty()) return "✅ nothing to archive"
-            if (!confirm("archive ${ids.size} email${plural(ids.size)}?")) return "❌ cancelled"
+            if (ids.isEmpty()) return "nothing to archive"
+            if (!confirm("archive ${ids.size} email${plural(ids.size)}?")) return "cancelled"
             GmailApi.archive(token, ids)
             repo.onArchived(ids)
-            "🗂️ archived ${ids.size} email${plural(ids.size)}"
+            "archived ${ids.size} email${plural(ids.size)}"
         }
 
         is EmailIntent.Delete -> {
             // Gmail returns newest-first, so capping to count trashes the most recent matches.
             val ids = GmailApi.list(token, intent.query, max = intent.count)
-            if (ids.isEmpty()) return "✅ nothing to delete"
-            if (!confirm("move ${ids.size} email${plural(ids.size)} to Trash?")) return "❌ cancelled"
+            if (ids.isEmpty()) return "nothing to delete"
+            if (!confirm("move ${ids.size} email${plural(ids.size)} to Trash?")) return "cancelled"
             GmailApi.trash(token, ids)
             repo.onTrashed(ids)
-            "🗑️ trashed ${ids.size} email${plural(ids.size)}"
+            "trashed ${ids.size} email${plural(ids.size)}"
         }
 
         is EmailIntent.ClearInbox -> {
             val ids = GmailApi.list(token, "in:inbox")
-            if (ids.isEmpty()) return "📭 inbox already clear"
-            if (!confirm("archive ALL ${ids.size} email${plural(ids.size)} in your inbox?")) return "❌ cancelled"
+            if (ids.isEmpty()) return "inbox already clear"
+            if (!confirm("archive ALL ${ids.size} email${plural(ids.size)} in your inbox?")) return "cancelled"
             GmailApi.archive(token, ids)
             repo.onArchived(ids)
-            "🧹 cleared ${ids.size} email${plural(ids.size)} from your inbox"
+            "cleared ${ids.size} email${plural(ids.size)} from your inbox"
         }
 
         is EmailIntent.Send -> {
             if (intent.to.isBlank() || !intent.to.contains("@")) {
                 speak("I didn't catch a valid email address to send it to.")
-                return "⚠️ no valid recipient — try “send an email to name@example.com …”"
+                return "no valid recipient — try “send an email to name@example.com …”"
             }
             val subject = intent.subject.ifBlank { "(no subject)" }
             // Short readback IS the confirmation prompt (no separate speak) so the "yes/no" ask lands
@@ -231,15 +231,15 @@ class EmailCommandHandler(appContext: Context) {
             val preview = intent.body.take(60).trim()
             val bodyPreview = if (intent.body.length > 60) "$preview, and so on" else preview
             val prompt = "Ready to send to ${spokenAddress(intent.to)}, subject $subject, saying: $bodyPreview."
-            if (!confirm(prompt)) return "❌ cancelled — not sent"
+            if (!confirm(prompt)) return "cancelled — not sent"
             GmailApi.send(token, intent.to, subject, intent.body)
             speak("Sent to ${intent.to}.")
-            "📤 sent to ${intent.to}\nSubject: $subject\n${intent.body}"
+            "sent to ${intent.to}\nSubject: $subject\n${intent.body}"
         }
 
         is EmailIntent.Reply -> handleReply(context, token, intent, speak, listen)
 
-        is EmailIntent.Unknown -> "🤷 didn't catch what to do with your email"
+        is EmailIntent.Unknown -> "didn't catch what to do with your email"
         }
     }
 
@@ -259,12 +259,12 @@ class EmailCommandHandler(appContext: Context) {
         // 1. Which email? Prefer the remembered current email for a generic "reply saying …"; otherwise
         //    locate it by the spoken target (and remember it for later turns).
         val focus = resolveReplyTarget(token, intent.query)
-            ?: run { speak("I couldn't find an email to reply to."); return "🔍 no email matched to reply to" }
+            ?: run { speak("I couldn't find an email to reply to."); return "no email matched to reply to" }
 
         val ctx = GmailApi.replyContext(token, focus.id)
         if (ctx.toEmail.isBlank()) {
             speak("I couldn't tell who to reply to.")
-            return "⚠️ couldn't determine the reply recipient"
+            return "couldn't determine the reply recipient"
         }
         val who = EmailSummarizer.cleanFrom(ctx.fromRaw).ifBlank { focus.fromName }
         val subject = if (ctx.subject.startsWith("Re:", ignoreCase = true)) ctx.subject else "Re: ${ctx.subject}"
@@ -285,7 +285,7 @@ class EmailCommandHandler(appContext: Context) {
             when {
                 reply.isNullOrBlank() -> {
                     misses++
-                    if (misses >= 2) { speak("Okay, I won't send it."); return "📝 not sent — I didn't catch your answer\n$draft" }
+                    if (misses >= 2) { speak("Okay, I won't send it."); return "not sent — I didn't catch your answer\n$draft" }
                     prompt = "Sorry, I didn't catch that. Say send it, cancel, or tell me what to change."
                 }
                 ActionConfirmation.isApproval(reply) -> {
@@ -298,7 +298,7 @@ class EmailCommandHandler(appContext: Context) {
                 }
                 ActionConfirmation.isCancellation(reply) -> {
                     speak("Okay, I won't send it.")
-                    return "❌ cancelled — not sent\n$draft"
+                    return "cancelled — not sent\n$draft"
                 }
                 else -> {
                     misses = 0
@@ -308,7 +308,7 @@ class EmailCommandHandler(appContext: Context) {
             }
         }
         speak("I'll leave that as a draft for now.")
-        return "📝 not sent — last draft:\n$draft"
+        return "not sent — last draft:\n$draft"
     }
 
     /**
@@ -325,7 +325,7 @@ class EmailCommandHandler(appContext: Context) {
         val threadId = resolveThreadId(token, intent.query)
             ?: run {
                 speak("I don't have an email open to summarise the thread for. Read or find an email first.")
-                return "📭 no thread in focus — read or find an email first"
+                return "no thread in focus — read or find an email first"
             }
 
         val summary = repo.threadSummary(context, token, threadId)
@@ -334,7 +334,7 @@ class EmailCommandHandler(appContext: Context) {
 
         speak(spokenSummary(summary))
         followUpLoop(context, token, threadId, summary, speak, listen)
-        return "🧵 ${summary.summary}" + extrasDisplay(summary)
+        return "${summary.summary}" + extrasDisplay(summary)
     }
 
     /** Which thread? Generic ask → the in-focus email's thread; otherwise locate the anchor email by query. */
@@ -482,7 +482,7 @@ class EmailCommandHandler(appContext: Context) {
         val ids = GmailApi.list(token, intent.query, max = 10)
         if (ids.isEmpty()) {
             speak("I couldn't find any email matching that.")
-            return "🔍 no match for “${intent.query}”"
+            return "no match for “${intent.query}”"
         }
         // Rank the top few candidates by how well subject/snippet match the topic words.
         val candidates = repo.metadataFor(token, ids.take(5))
@@ -495,7 +495,7 @@ class EmailCommandHandler(appContext: Context) {
                 "Subject: ${best.subject.ifBlank { "no subject" }}. " +
                 body.take(600).ifBlank { best.snippet } + more,
         )
-        return "🔍 ${EmailSummarizer.cleanFrom(best.from)} — ${best.subject.ifBlank { "(no subject)" }}"
+        return "${EmailSummarizer.cleanFrom(best.from)} — ${best.subject.ifBlank { "(no subject)" }}"
     }
 
     /** Content words from a Gmail query, dropping operators (from:, newer_than:, etc.) and quotes. */

@@ -23,7 +23,7 @@ class MemoryCommandHandler(appContext: Context) {
         MemoryIntents.deleteTopic(normalized)?.let { return delete(it) }
         MemoryIntents.queryTopic(normalized)?.let { return query(it, speak) }
 
-        return "🤷 didn't catch that memory command"
+        return "didn't catch that memory command"
     }
 
     private suspend fun save(context: Context, statement: String, onStatus: (String) -> Unit): String {
@@ -33,22 +33,22 @@ class MemoryCommandHandler(appContext: Context) {
         Log.i(TAG, "save: key=\"${extracted.key}\" value=\"${extracted.value}\"")
         return when (val r = repo.save(extracted.key, extracted.value, statement, System.currentTimeMillis())) {
             is MemoryRepository.SaveResult.Added ->
-                "🧠 remembered — ${r.memory.key}: ${r.memory.value}"
+                "remembered — ${r.memory.key}: ${r.memory.value}"
             is MemoryRepository.SaveResult.Updated ->
-                "🧠 updated ${r.memory.key}: \"${r.previousValue}\" → \"${r.memory.value}\""
+                "updated ${r.memory.key}: \"${r.previousValue}\" → \"${r.memory.value}\""
         }
     }
 
     private suspend fun delete(topic: String): String {
         val removed = repo.deleteMatching(topic)
-        return if (removed > 0) "🗑️ forgot $removed ${plural(removed)} about \"$topic\""
+        return if (removed > 0) "forgot $removed ${plural(removed)} about \"$topic\""
         else "I had nothing saved about \"$topic\""
     }
 
     private suspend fun clear(): String {
         val n = repo.count()
         repo.clear()
-        return if (n > 0) "🗑️ cleared all $n ${plural(n)}" else "I had no memories to clear"
+        return if (n > 0) "cleared all $n ${plural(n)}" else "I had no memories to clear"
     }
 
     private suspend fun query(topic: String, speak: (String) -> Unit): String {
@@ -57,14 +57,14 @@ class MemoryCommandHandler(appContext: Context) {
             val answer = if (topic.isEmpty()) "I don't have any memories saved yet."
             else "I don't remember anything about \"$topic\"."
             speak(answer)
-            return "🧠 $answer"
+            return "$answer"
         }
         val spoken = buildString {
             append(if (topic.isEmpty()) "Here's what I remember. " else "Here's what I remember about $topic. ")
             append(hits.joinToString(". ") { "${it.key} is ${it.value}" })
         }
         speak(spoken)
-        return "🧠 " + hits.joinToString("\n") { "• ${it.key}: ${it.value}" }
+        return "" + hits.joinToString("\n") { "• ${it.key}: ${it.value}" }
     }
 
     private fun plural(n: Int) = if (n == 1) "memory" else "memories"

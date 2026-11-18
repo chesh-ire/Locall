@@ -33,7 +33,7 @@ class PersonalAgentCommandHandler(appContext: Context) {
             orchestrator.run(context, transcript, convo, io, contextBlock)
         } catch (t: Throwable) {
             Log.w(TAG, "agent run failed", t)
-            return "⚠️ the agent hit an error: ${t.javaClass.simpleName}"
+            return "the agent hit an error: ${t.javaClass.simpleName}"
         }
         speak(forSpeech(first.spoken))
 

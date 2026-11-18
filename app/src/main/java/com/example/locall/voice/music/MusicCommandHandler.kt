@@ -23,12 +23,12 @@ class MusicCommandHandler(appContext: Context) {
 
         MusicIntents.transport(normalized)?.let { return runTransport(it) }
 
-        if (!spotify.isSpotifyInstalled()) return "⚠️ Spotify isn't installed"
+        if (!spotify.isSpotifyInstalled()) return "Spotify isn't installed"
 
         MusicIntents.personal(normalized)?.let { return runPersonal(it, playViaSearch) }
 
         val query = MusicIntents.playQuery(normalized)
-            ?: return "🤷 didn't catch what to play"
+            ?: return "didn't catch what to play"
 
         // 1. Offline cold-start: a known catalogue track plays deterministically with no network.
         catalogue.findByQuery(query)?.let { hit ->
@@ -65,8 +65,8 @@ class MusicCommandHandler(appContext: Context) {
     private suspend fun playTrack(title: String, artist: String?, uri: String): String =
         if (spotify.playUri(uri)) {
             recordPlayed(MusicSession.Track(title, artist?.ifBlank { null }, uri))
-            "🎵 playing $title${artist?.takeIf { it.isNotBlank() }?.let { " — $it" } ?: ""}"
-        } else "⚠️ couldn't open Spotify"
+            "playing $title${artist?.takeIf { it.isNotBlank() }?.let { " — $it" } ?: ""}"
+        } else "couldn't open Spotify"
 
     /** API-resolve → URI play, else Accessibility search, else open Spotify's search screen. */
     private suspend fun resolveOrSearch(query: String, playViaSearch: suspend (String) -> Boolean): String {
@@ -78,10 +78,10 @@ class MusicCommandHandler(appContext: Context) {
         return when {
             playViaSearch(query) -> {
                 recordPlayed(MusicSession.Track(query, null, null))
-                "🎵 playing \"$query\""
+                "playing \"$query\""
             }
-            spotify.search(query) -> "🔎 opened Spotify search for \"$query\" (couldn't auto-play — enable Accessibility for LocaLL)"
-            else -> "⚠️ couldn't open Spotify"
+            spotify.search(query) -> "opened Spotify search for \"$query\" (couldn't auto-play — enable Accessibility for LocaLL)"
+            else -> "couldn't open Spotify"
         }
     }
 
@@ -94,7 +94,7 @@ class MusicCommandHandler(appContext: Context) {
             playFromHistory(history.recent(HISTORY_PICK), "your recently played", playViaSearch)
         MusicIntent.PlayFavouriteArtist ->
             playFromHistory(history.favouriteArtistTracks(HISTORY_PICK), "your favourite artist", playViaSearch)
-        else -> "🤷 didn't understand the music command"
+        else -> "didn't understand the music command"
     }
 
     private suspend fun playFromHistory(
@@ -102,7 +102,7 @@ class MusicCommandHandler(appContext: Context) {
         label: String,
         playViaSearch: suspend (String) -> Boolean,
     ): String {
-        if (entries.isEmpty()) return "🤷 no listening history yet — play a few songs first"
+        if (entries.isEmpty()) return "no listening history yet — play a few songs first"
         val pick = entries.firstOrNull { !it.uri.isNullOrBlank() } ?: entries.first()
         val uri = pick.uri
         Log.i(TAG, "personal pick ($label): ${pick.title} uri=$uri")
@@ -116,12 +116,12 @@ class MusicCommandHandler(appContext: Context) {
     // ---------- transport ----------
 
     private suspend fun runTransport(intent: MusicIntent): String = when (intent) {
-        MusicIntent.Pause -> if (spotify.pause()) { MusicSession.onPaused(now()); "⏸️ paused" } else "⚠️ couldn't pause"
-        MusicIntent.Resume -> if (spotify.resume()) { MusicSession.onResumed(now()); "▶️ resumed" } else "⚠️ couldn't resume"
-        MusicIntent.Skip -> if (spotify.skip()) { MusicSession.onSkipped(now()); "⏭️ skipped" } else "⚠️ couldn't skip"
+        MusicIntent.Pause -> if (spotify.pause()) { MusicSession.onPaused(now()); "paused" } else "couldn't pause"
+        MusicIntent.Resume -> if (spotify.resume()) { MusicSession.onResumed(now()); "▶️ resumed" } else "couldn't resume"
+        MusicIntent.Skip -> if (spotify.skip()) { MusicSession.onSkipped(now()); "skipped" } else "couldn't skip"
         MusicIntent.Replay -> replayLast()
         MusicIntent.PlayDifferent -> playDifferent()
-        else -> "🤷 didn't understand the music command"
+        else -> "didn't understand the music command"
     }
 
     private suspend fun replayLast(): String {
@@ -130,10 +130,10 @@ class MusicCommandHandler(appContext: Context) {
         if (track != null && uri != null) {
             return if (spotify.playUri(uri)) {
                 recordPlayed(track)
-                "🔁 replaying ${track.title}${track.artist?.let { " — $it" } ?: ""}"
-            } else "⚠️ couldn't replay"
+                "replaying ${track.title}${track.artist?.let { " — $it" } ?: ""}"
+            } else "couldn't replay"
         }
-        return if (spotify.replay()) "🔁 replaying" else "⚠️ couldn't replay"
+        return if (spotify.replay()) "replaying" else "couldn't replay"
     }
 
     private suspend fun playDifferent(): String {
@@ -143,7 +143,7 @@ class MusicCommandHandler(appContext: Context) {
             val other = catalogue.tracksByArtist(artist).firstOrNull { it.uri != track.uri }
             if (other != null) return playTrack(other.title, other.artist, other.uri)
         }
-        return if (spotify.skip()) { MusicSession.onSkipped(now()); "⏭️ playing something else" } else "⚠️ couldn't skip"
+        return if (spotify.skip()) { MusicSession.onSkipped(now()); "playing something else" } else "couldn't skip"
     }
 
     private fun now(): Long = System.currentTimeMillis()
@@ -168,7 +168,7 @@ class MusicCommandHandler(appContext: Context) {
             if (hit != null) playTrack(hit.title, hit.artist, hit.uri)
             else resolveOrSearch(if (artistWasSpoken(intent.artist, query)) intent.artist else query, playViaSearch)
         }
-        else -> "🤷 didn't catch what to play"
+        else -> "didn't catch what to play"
     }
 
     private fun artistWasSpoken(artist: String, query: String): Boolean {

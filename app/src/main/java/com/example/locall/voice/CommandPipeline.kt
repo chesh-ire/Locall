@@ -105,23 +105,23 @@ object CommandPipeline {
         }
         if (action is CommandAction.Torch) {
             val ok = TorchController.set(appContext, action.on)
-            return if (ok) { if (action.on) "🔦 flashlight on" else "🔦 flashlight off" }
-                else "⚠️ no flashlight available"
+            return if (ok) { if (action.on) "flashlight on" else "flashlight off" }
+                else "no flashlight available"
         }
         if (action is CommandAction.SetAlarm) {
             val ok = ClockController.setAlarm(appContext, action.hour, action.minute)
             val time = "%02d:%02d".format(action.hour, action.minute)
-            return if (ok) "⏰ alarm set for $time" else "⚠️ no clock app to set an alarm"
+            return if (ok) "alarm set for $time" else "no clock app to set an alarm"
         }
         if (action is CommandAction.SetTimer) {
             val ok = ClockController.setTimer(appContext, action.seconds)
-            return if (ok) "⏱️ timer set for ${formatDuration(action.seconds)}"
-                else "⚠️ no clock app to set a timer"
+            return if (ok) "timer set for ${formatDuration(action.seconds)}"
+                else "no clock app to set a timer"
         }
         if (action is CommandAction.CancelAlarm) {
             val ok = ClockController.showAlarms(appContext)
-            return if (ok) "⏰ opened your alarms — tap one to turn it off"
-                else "⚠️ no clock app to open"
+            return if (ok) "opened your alarms — tap one to turn it off"
+                else "no clock app to open"
         }
         if (action is CommandAction.Email) {
             val speak: (String) -> Unit = { text -> AppTts.speak(appContext, text) }
@@ -144,7 +144,7 @@ object CommandPipeline {
         if (svc == null) {
             Log.w(TAG, "dispatch: VoiceAccessibilityService.instance is null — " +
                     "Accessibility is not enabled (or was reset) for LocaLL")
-            return "⚠️ Enable Accessibility (Settings) to run commands"
+            return "Enable Accessibility (Settings) to run commands"
         }
 
         if (action is CommandAction.ReadLastMessage) {
@@ -155,7 +155,7 @@ object CommandPipeline {
                 Log.i(TAG, "dispatch: calling svc.speak()...")
                 svc.speak(message)
                 Log.i(TAG, "dispatch: svc.speak() returned")
-                "💬 ${action.contact}: \"$message\""
+                "${action.contact}: \"$message\""
             } else {
                 "couldn't find a chat/message for \"${action.contact}\""
             }
@@ -172,31 +172,31 @@ object CommandPipeline {
                 LlmBridge.generateReply(action.instruction, decodeThreads, memoryContext)
             } catch (t: Throwable) {
                 Log.w(TAG, "dispatch: generateReply failed", t)
-                return "⚠️ couldn't draft a reply: ${t.javaClass.simpleName}"
+                return "couldn't draft a reply: ${t.javaClass.simpleName}"
             }
-            if (draft.isEmpty()) return "⚠️ AI model produced an empty reply"
+            if (draft.isEmpty()) return "AI model produced an empty reply"
             val stats = LlmBridge.lastStats
-            if (!confirm("type drafted reply: \"$draft\"")) return "❌ cancelled: \"$draft\""
+            if (!confirm("type drafted reply: \"$draft\"")) return "cancelled: \"$draft\""
             val typed = svc.execute(CommandAction.TypeText(draft, append = false))
             if (!typed) return "no text field focused"
             svc.speak(draft)
-            return "✍️ drafted: \"$draft\"  ·  $stats"
+            return "drafted: \"$draft\"  ·  $stats"
         }
 
         val needsConfirm = action is CommandAction.TypeText ||
             action is CommandAction.ClearField ||
             action is CommandAction.SendMessage
-        if (needsConfirm && !confirm(describe(action))) return "❌ cancelled"
+        if (needsConfirm && !confirm(describe(action))) return "cancelled"
 
         val ok = svc.execute(action)
         return when (action) {
-            is CommandAction.TypeText -> if (ok) "⌨️ typed: \"${action.text}\"" else "no text field focused"
-            is CommandAction.OpenApp -> if (ok) "📱 opened: ${action.query}" else "app not found: ${action.query}"
-            is CommandAction.Navigate -> if (ok) "✅ ${action.nav}" else "couldn't ${action.nav}"
-            is CommandAction.ClearField -> if (ok) "🧹 cleared" else "no field to clear"
-            is CommandAction.SendMessage -> if (ok) "📤 sent" else "couldn't find a send button"
-            is CommandAction.Screenshot -> if (ok) "📸 screenshot taken" else "⚠️ couldn't take a screenshot"
-            is CommandAction.LockScreen -> if (ok) "🔒 locked" else "⚠️ couldn't lock (needs Android 9+)"
+            is CommandAction.TypeText -> if (ok) "typed: \"${action.text}\"" else "no text field focused"
+            is CommandAction.OpenApp -> if (ok) "opened: ${action.query}" else "app not found: ${action.query}"
+            is CommandAction.Navigate -> if (ok) "${action.nav}" else "couldn't ${action.nav}"
+            is CommandAction.ClearField -> if (ok) "cleared" else "no field to clear"
+            is CommandAction.SendMessage -> if (ok) "sent" else "couldn't find a send button"
+            is CommandAction.Screenshot -> if (ok) "screenshot taken" else "couldn't take a screenshot"
+            is CommandAction.LockScreen -> if (ok) "locked" else "couldn't lock (needs Android 9+)"
             is CommandAction.ReadLastMessage -> error("handled above")
             is CommandAction.ComposeReply -> error("handled above")
             is CommandAction.Music -> error("handled above")
@@ -210,7 +210,7 @@ object CommandPipeline {
             is CommandAction.SetAlarm -> error("handled above")
             is CommandAction.SetTimer -> error("handled above")
             is CommandAction.CancelAlarm -> error("handled above")
-            is CommandAction.Unrecognized -> "🤷 didn't understand: \"${action.transcript}\""
+            is CommandAction.Unrecognized -> "didn't understand: \"${action.transcript}\""
         }
     }
 
@@ -234,12 +234,12 @@ object CommandPipeline {
         val dir = if (up) "up" else "down"
         if (mediaWasPlaying) {
             val ok = VolumeController.adjustMedia(appContext, up)
-            return if (ok) "🔊 media volume $dir" else "⚠️ couldn't change media volume"
+            return if (ok) "media volume $dir" else "couldn't change media volume"
         }
-        if (!confirm("turn the ringer volume $dir")) return "❌ cancelled — nothing is playing"
+        if (!confirm("turn the ringer volume $dir")) return "cancelled — nothing is playing"
         val ok = VolumeController.adjustRing(appContext, up)
-        return if (ok) "🔊 ringer volume $dir"
-            else "⚠️ couldn't change ringer volume (needs Do-Not-Disturb access near silent)"
+        return if (ok) "ringer volume $dir"
+            else "couldn't change ringer volume (needs Do-Not-Disturb access near silent)"
     }
 
     private fun describe(action: CommandAction): String = when (action) {
