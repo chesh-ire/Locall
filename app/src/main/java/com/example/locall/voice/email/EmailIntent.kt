@@ -29,7 +29,12 @@ sealed interface EmailIntent {
 
     data object ClearInbox : EmailIntent
 
-    /** Compose and send a new email. Always confirmed with the user before sending. */
+    /**
+     * Compose and send a NEW email. [body] is the user's INTENDED MESSAGE — words they dictated OR a
+     * description of what to say ("ask them to respond immediately"). The LLM drafts a natural email from
+     * it, the user may refine it across turns, and it's only sent on explicit approval. [to] may be blank
+     * (the handler asks for the recipient).
+     */
     data class Send(val to: String, val subject: String, val body: String) : EmailIntent
 
     /**

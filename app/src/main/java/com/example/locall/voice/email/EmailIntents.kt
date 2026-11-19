@@ -55,15 +55,14 @@ object EmailIntents {
 
     /**
      * True when the request is about composing/sending a NEW email (needs field extraction via the
-     * LLM, so this only gates — it doesn't build the intent). Requires a compose verb + a recipient cue.
+     * LLM, so this only gates — it doesn't build the intent). A compose verb is enough; a missing
+     * recipient is asked for by the handler, so it's no longer required to route here.
      */
     fun looksLikeSend(normalized: String): Boolean {
         val t = normalized.trim()
         if (OPEN_APP_PREFIXES.any { t.startsWith(it) }) return false
-        val composeVerb = t.contains("send") || t.contains("compose") ||
+        return t.contains("send") || t.contains("compose") ||
             (t.contains("write") && (t.contains("email") || t.contains("mail")))
-        val hasRecipient = t.contains(" to ") || t.contains("@")
-        return composeVerb && hasRecipient
     }
 
     private fun containsWord(haystack: String, word: String): Boolean =

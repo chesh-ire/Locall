@@ -220,27 +220,90 @@ class EmailCommandHandler(appContext: Context) {
             "cleared ${ids.size} email${plural(ids.size)} from your inbox"
         }
 
-        is EmailIntent.Send -> {
-            if (intent.to.isBlank() || !intent.to.contains("@")) {
-                speak("I didn't catch a valid email address to send it to.")
-                return "no valid recipient — try “send an email to name@example.com …”"
-            }
-            val subject = intent.subject.ifBlank { "(no subject)" }
-            // Short readback IS the confirmation prompt (no separate speak) so the "yes/no" ask lands
-            // quickly while the user is still primed. Body is previewed, not read in full.
-            val preview = intent.body.take(60).trim()
-            val bodyPreview = if (intent.body.length > 60) "$preview, and so on" else preview
-            val prompt = "Ready to send to ${spokenAddress(intent.to)}, subject $subject, saying: $bodyPreview."
-            if (!confirm(prompt)) return "cancelled — not sent"
-            GmailApi.send(token, intent.to, subject, intent.body)
-            speak("Sent to ${intent.to}.")
-            "sent to ${intent.to}\nSubject: $subject\n${intent.body}"
-        }
+        is EmailIntent.Send -> handleSend(context, token, intent, speak, listen)
 
         is EmailIntent.Reply -> handleReply(context, token, intent, speak, listen)
 
         is EmailIntent.Unknown -> "didn't catch what to do with your email"
         }
+    }
+
+    /**
+     * Compose a NEW email: the LLM drafts a natural email from the user's intended message (which may be
+     * just a description like "ask them to respond immediately"), then the user refines it across turns
+     * and must explicitly approve before it's sent. Mirrors [handleReply] — the model is a writing
+     * assistant only; it never decides to send, and never invents commitments the user didn't make.
+     */
+    private suspend fun handleSend(
+        context: Context,
+        token: String,
+        intent: EmailIntent.Send,
+        speak: (String) -> Unit,
+        listen: suspend (String) -> String?,
+    ): String {
+        // 1. Recipient — ask once if it's missing or clearly not an address.
+        var to = intent.to
+        if (!isValidRecipient(to)) {
+            val answer = listen("Who should I send this to? Say or type their email address.")
+            to = answer?.let(::normalizeSpokenEmail).orEmpty()
+        }
+        if (!isValidRecipient(to)) {
+            speak("I didn't get a valid email address, so I didn't send anything.")
+            return "no valid recipient — try “email name@example.com …”"
+        }
+
+        val subject = intent.subject.ifBlank { "(no subject)" }
+        val brief = EmailComposeWriter.ComposeBrief(subject)
+
+        // 2. First draft from the user's intended message / description.
+        var draft = EmailComposeWriter.draft(context, brief, intent.body)
+
+        // 3. Refine ↔ approve loop — mic stays open each turn. Only an explicit approval sends.
+        var prompt = "Here's an email to ${spokenAddress(to)}, subject $subject. $draft. " +
+            "Shall I send it, change something, or cancel?"
+        var misses = 0
+        repeat(MAX_REFINE_TURNS) {
+            val reply = listen(prompt)
+            when {
+                reply.isNullOrBlank() -> {
+                    misses++
+                    if (misses >= 2) { speak("Okay, I won't send it."); return "not sent — I didn't catch your answer\nSubject: $subject\n$draft" }
+                    prompt = "Sorry, I didn't catch that. Say send it, cancel, or tell me what to change."
+                }
+                ActionConfirmation.isApproval(reply) -> {
+                    GmailApi.send(token, to, subject, draft)
+                    speak("Sent to $to.")
+                    return "sent to $to\nSubject: $subject\n$draft"
+                }
+                ActionConfirmation.isCancellation(reply) -> {
+                    speak("Okay, I won't send it.")
+                    return "cancelled — not sent\nSubject: $subject\n$draft"
+                }
+                else -> {
+                    misses = 0
+                    draft = EmailComposeWriter.refine(context, brief, draft, reply)
+                    prompt = "How about this. $draft. Send it, change it, or cancel?"
+                }
+            }
+        }
+        speak("I'll leave that as a draft for now.")
+        return "not sent — last draft:\nSubject: $subject\n$draft"
+    }
+
+    private fun isValidRecipient(addr: String): Boolean {
+        val at = addr.indexOf('@')
+        val dot = addr.indexOf('.', at + 1)
+        return at > 0 && dot > at + 1 && !addr.endsWith(".")
+    }
+
+    /** Fold spoken email forms ("john dot smith at gmail dot com") into a normal address when it looks like one. */
+    private fun normalizeSpokenEmail(raw: String): String {
+        val s = raw.trim()
+        if (!s.contains("@") && !s.contains(" at ", ignoreCase = true)) return s
+        return s.lowercase()
+            .replace(Regex("\\s+at\\s+"), "@")
+            .replace(Regex("\\s+dot\\s+"), ".")
+            .replace(Regex("\\s+"), "")
     }
 
     /**

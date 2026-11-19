@@ -68,24 +68,27 @@ object EmailIntentParser {
     """.trimIndent()
 
     private val SEND_SYSTEM_PROMPT = """
-        The user is DICTATING an email. Your job is to TRANSCRIBE what they said into a JSON object —
-        NOT to write or improve the email. Fields:
-          "to"      the recipient's email address (or their name if no address is given),
-          "subject" EXACTLY the subject the user stated; only if they gave none, infer a 2-4 word one,
-          "body"    EXACTLY the message words the user dictated, verbatim.
-        CRITICAL: Use ONLY the user's own words for the body. Never invent, expand, elaborate, rephrase,
-        or add greetings, sign-offs, or sentences the user did not say. If they dictate one word, the body
-        is that one word. Fix only obvious capitalization/punctuation.
-        Spoken email addresses may say "at" for @ and "dot" for "." — write them as a normal address.
-        Drop filler markers like "subject", "subject line", "body", "message", "saying". Output ONLY the JSON.
+        The user wants to compose and send a NEW email. Extract ONE JSON object. Fields:
+          "to"      the recipient's email address (or their name if given), or "" if none was stated,
+          "subject" the subject the user stated; only if they gave none, infer a 2-4 word one,
+          "body"    the user's INTENDED MESSAGE — the gist of what they want to say. This may be words
+                    they dictated OR a short DESCRIPTION of what the email should say (e.g. "ask them to
+                    respond immediately"). Capture it faithfully and completely; a writing assistant will
+                    turn it into a polished email afterwards, so you do NOT need to phrase it as a letter.
+        Do not add recipients, commitments, or facts the user didn't state. Spoken email addresses may say
+        "at" for @ and "dot" for "." — write them as a normal address. Drop filler markers like "subject",
+        "subject line", "body", "message", "saying", "write an email", "send an email", "compose".
+        Output ONLY the JSON.
 
         Examples:
-        "send an email to abc@gmail.com subject line be ready body hi"
-          -> {"to":"abc@gmail.com","subject":"be ready","body":"Hi"}
-        "write an email saying I'll be there at 6pm and send it to abc@gmail.com"
-          -> {"to":"abc@gmail.com","subject":"See you at 6pm","body":"I'll be there at 6 pm."}
-        "email john dot smith at gmail dot com subject lunch body running late"
-          -> {"to":"john.smith@gmail.com","subject":"lunch","body":"Running late"}
+        "send an email to abc@gmail.com subject line be ready body please be on time"
+          -> {"to":"abc@gmail.com","subject":"be ready","body":"please be on time"}
+        "write an email to sam@x.com subject hi asking them to respond immediately"
+          -> {"to":"sam@x.com","subject":"hi","body":"ask them to respond immediately"}
+        "email john dot smith at gmail dot com and tell them I'll be there at 6pm"
+          -> {"to":"john.smith@gmail.com","subject":"See you at 6pm","body":"I'll be there at 6 pm"}
+        "compose an email apologising for missing the meeting"
+          -> {"to":"","subject":"Apologies for missing the meeting","body":"apologise for missing the meeting"}
     """.trimIndent()
 
     private val REPLY_GRAMMAR = """

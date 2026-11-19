@@ -81,6 +81,10 @@ fun ConversationScreen(
                 EmptyState(
                     modifier = Modifier.weight(1f),
                     onExample = { if (ui.inputEnabled) vm.submit(it) },
+                    recording = ui.recording,
+                    micEnabled = ui.micEnabled,
+                    onStartRecording = { vm.startRecording() },
+                    onStopRecording = { vm.stopRecording() },
                 )
             } else {
                 LazyColumn(
@@ -157,27 +161,39 @@ private fun TopBar(
 }
 
 @Composable
-private fun EmptyState(modifier: Modifier = Modifier, onExample: (String) -> Unit) {
+private fun EmptyState(
+    modifier: Modifier = Modifier,
+    onExample: (String) -> Unit,
+    recording: Boolean,
+    micEnabled: Boolean,
+    onStartRecording: () -> Unit,
+    onStopRecording: () -> Unit,
+) {
     Column(
-        modifier.fillMaxWidth().padding(horizontal = 24.dp),
+        modifier.fillMaxSize().padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        HeroMic()
-        Spacer(Modifier.height(20.dp))
         Text(
             "How can I help?",
             style = MaterialTheme.typography.headlineSmall,
             textAlign = TextAlign.Center,
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(28.dp))
+        HeroMic(
+            recording = recording,
+            enabled = micEnabled,
+            onStart = onStartRecording,
+            onStop = onStopRecording,
+        )
+        Spacer(Modifier.height(16.dp))
         Text(
-            "Ask by voice or text — I'll handle email, messages, your documents, memory and planning, all on-device.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            if (recording) "Listening…" else "Hold to speak",
+            style = MaterialTheme.typography.titleMedium,
+            color = if (recording) Magenta else MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(32.dp))
         EXAMPLES.forEach { ex ->
             Surface(
                 shape = RoundedCornerShape(14.dp),
@@ -197,17 +213,39 @@ private fun EmptyState(modifier: Modifier = Modifier, onExample: (String) -> Uni
 }
 
 @Composable
-private fun HeroMic() {
+private fun HeroMic(
+    recording: Boolean,
+    enabled: Boolean,
+    onStart: () -> Unit,
+    onStop: () -> Unit,
+) {
     val transition = rememberInfiniteTransition(label = "hero")
     val breathe by transition.animateFloat(
-        initialValue = 1f, targetValue = 1.05f,
-        animationSpec = infiniteRepeatable(tween(2200, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        initialValue = 1f,
+        targetValue = if (recording) 1.12f else 1.05f,
+        animationSpec = infiniteRepeatable(
+            tween(if (recording) 700 else 2200, easing = FastOutSlowInEasing),
+            RepeatMode.Reverse,
+        ),
         label = "breathe",
     )
+    val fill: Brush = if (recording) Brush.linearGradient(listOf(SignalRed, Magenta)) else brandBrush()
     Box(
         contentAlignment = Alignment.Center,
-        modifier = Modifier.size(120.dp).scale(breathe).clip(CircleShape).background(brandBrush()),
-    ) { Text("🎙️", fontSize = 44.sp) }
+        modifier = Modifier
+            .size(168.dp)
+            .scale(breathe)
+            .clip(CircleShape)
+            .background(if (enabled || recording) fill else Brush.linearGradient(listOf(Color.Gray, Color.Gray)))
+            .pointerInput(enabled) {
+                if (!enabled) return@pointerInput
+                detectTapGestures(onPress = {
+                    onStart()
+                    tryAwaitRelease()
+                    onStop()
+                })
+            },
+    ) { Text(if (recording) "●" else "🎙️", color = Color.White, fontSize = if (recording) 52.sp else 60.sp) }
 }
 
 @Composable

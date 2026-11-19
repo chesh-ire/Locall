@@ -27,49 +27,54 @@ fun ConversationDrawerContent(
 ) {
     val sessions by vm.sessions.collectAsState()
 
-    Column(Modifier.fillMaxSize().padding(top = 16.dp)) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Conversations", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-            FilledTonalButton(onClick = { vm.newConversation(); onClose() }) {
-                Text("✎ New")
-            }
-        }
-
-        Spacer(Modifier.height(8.dp))
-
-        if (sessions.isEmpty()) {
-            Text(
-                "No saved conversations yet.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            )
-        } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f, fill = false).fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+    // The whole drawer is one continuous list — conversations, then the connections & permissions
+    // panel below them — so it scrolls as a single flat list rather than two competing scroll regions.
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(top = 16.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        item(key = "header") {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                items(sessions, key = { it.id }) { session ->
-                    SessionRow(
-                        session = session,
-                        onOpen = { vm.openSession(session.id); onClose() },
-                        onDelete = { vm.deleteSession(session.id) },
-                    )
+                Text("Conversations", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                FilledTonalButton(onClick = { vm.newConversation(); onClose() }) {
+                    Text("✎ New")
                 }
             }
         }
 
-        HorizontalDivider(
-            Modifier.padding(vertical = 12.dp),
-            color = MaterialTheme.colorScheme.outlineVariant,
-        )
+        if (sessions.isEmpty()) {
+            item(key = "empty") {
+                Text(
+                    "No saved conversations yet.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+        } else {
+            items(sessions, key = { it.id }) { session ->
+                SessionRow(
+                    session = session,
+                    onOpen = { vm.openSession(session.id); onClose() },
+                    onDelete = { vm.deleteSession(session.id) },
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
+            }
+        }
 
-        // Existing connections & permissions panel, scrolls independently within its own section.
-        Box(Modifier.weight(1f)) { SetupSheetContent() }
+        item(key = "divider") {
+            HorizontalDivider(
+                Modifier.padding(vertical = 12.dp),
+                color = MaterialTheme.colorScheme.outlineVariant,
+            )
+        }
+
+        // Connections & permissions panel, rendered inline as part of the same list.
+        item(key = "setup") { SetupSheetContent() }
     }
 }
 
@@ -78,12 +83,13 @@ private fun SessionRow(
     session: ConversationSession,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Surface(
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surface,
         onClick = onOpen,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
     ) {
         Row(
             Modifier.padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
