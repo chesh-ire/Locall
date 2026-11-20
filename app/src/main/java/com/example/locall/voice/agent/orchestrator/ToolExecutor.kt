@@ -39,7 +39,7 @@ class ToolExecutor(context: Context) {
     private val progress = ProgressTracker(tasks, goals)
     private val ctxBuilder = ContextBuilder(tasks, goals)
     private val taskExtractor = TaskExtractor(tasks)
-    private val emailRepo = EmailRepository(app)
+    private val emailRepo = EmailRepository.get(app)
 
     data class Result(
         val display: String,

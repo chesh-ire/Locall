@@ -20,7 +20,7 @@ class InboxManager(context: Context) {
 
     private val app = context.applicationContext
     private val repo = InboxRepository(AgentDatabase.get(app).dao())
-    private val emailRepo = EmailRepository(app)
+    private val emailRepo = EmailRepository.get(app)
 
     data class BriefItem(
         val id: String,

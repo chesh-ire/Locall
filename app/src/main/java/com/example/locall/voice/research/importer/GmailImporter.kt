@@ -18,7 +18,7 @@ private const val TAG = "GmailImporter"
 class GmailImporter(context: Context) {
 
     private val app = context.applicationContext
-    private val repo = EmailRepository(app)
+    private val repo = EmailRepository.get(app)
 
     sealed interface Result {
         data class Ok(val documents: List<RawDocument>) : Result

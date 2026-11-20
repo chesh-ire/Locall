@@ -2,15 +2,10 @@ package com.example.locall.voice
 
 import android.content.Context
 import android.util.Log
-import com.example.locall.voice.agent.PersonalAgentCommandHandler
-import com.example.locall.voice.battery.BatteryCommandHandler
-import com.example.locall.voice.email.EmailCommandHandler
-import com.example.locall.voice.memory.MemoryCommandHandler
+import com.example.locall.appContainer
 import com.example.locall.voice.memory.MemoryRepository
-import com.example.locall.voice.music.MusicCommandHandler
 import com.example.locall.voice.music.MusicIntent
 import com.example.locall.voice.music.MusicIntents
-import com.example.locall.voice.research.ResearchCommandHandler
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
@@ -20,30 +15,14 @@ object CommandPipeline {
 
     private val matcher = IntentMatcher(llmFallback = ::llmFallback)
 
-    @Volatile private var musicHandler: MusicCommandHandler? = null
-    @Volatile private var memoryHandler: MemoryCommandHandler? = null
-    @Volatile private var emailHandler: EmailCommandHandler? = null
-    @Volatile private var batteryHandler: BatteryCommandHandler? = null
-    @Volatile private var researchHandler: ResearchCommandHandler? = null
-    @Volatile private var agentHandler: PersonalAgentCommandHandler? = null
-
-    private fun music(context: Context): MusicCommandHandler =
-        musicHandler ?: MusicCommandHandler(context.applicationContext).also { musicHandler = it }
-
-    private fun memory(context: Context): MemoryCommandHandler =
-        memoryHandler ?: MemoryCommandHandler(context.applicationContext).also { memoryHandler = it }
-
-    private fun email(context: Context): EmailCommandHandler =
-        emailHandler ?: EmailCommandHandler(context.applicationContext).also { emailHandler = it }
-
-    private fun battery(context: Context): BatteryCommandHandler =
-        batteryHandler ?: BatteryCommandHandler(context.applicationContext).also { batteryHandler = it }
-
-    private fun research(context: Context): ResearchCommandHandler =
-        researchHandler ?: ResearchCommandHandler(context.applicationContext).also { researchHandler = it }
-
-    private fun agent(context: Context): PersonalAgentCommandHandler =
-        agentHandler ?: PersonalAgentCommandHandler(context.applicationContext).also { agentHandler = it }
+    // Capability handlers are owned by the app's composition root (AppContainer); the pipeline just
+    // resolves them per request instead of constructing/caching its own copies.
+    private fun music(context: Context) = context.appContainer.musicHandler
+    private fun memory(context: Context) = context.appContainer.memoryHandler
+    private fun email(context: Context) = context.appContainer.emailHandler
+    private fun battery(context: Context) = context.appContainer.batteryHandler
+    private fun research(context: Context) = context.appContainer.researchHandler
+    private fun agent(context: Context) = context.appContainer.agentHandler
 
     @Volatile private var appContextForLlm: Context? = null
 

@@ -7,11 +7,16 @@ import com.example.locall.voice.music.history.MusicHistoryRepository
 
 private const val TAG = "MusicCommandHandler"
 
-class MusicCommandHandler(appContext: Context) {
+class MusicCommandHandler(
+    appContext: Context,
+    private val history: MusicHistoryRepository,
+) {
 
     private val catalogue = MusicCatalogue(appContext)
     private val spotify = SpotifyController(appContext)
-    private val history = MusicHistoryRepository(appContext)
+
+    /** Convenience wiring for callers that only hold a [Context]. */
+    constructor(appContext: Context) : this(appContext, MusicHistoryRepository(appContext))
 
     suspend fun handle(
         context: Context,

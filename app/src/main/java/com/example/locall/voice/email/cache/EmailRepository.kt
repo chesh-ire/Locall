@@ -243,4 +243,18 @@ class EmailRepository(context: Context) {
         internalDateMs = internalDateMs,
         body = null, bodyFetchedAt = null, cachedAt = stamp,
     )
+
+    companion object {
+        @Volatile private var instance: EmailRepository? = null
+
+        /**
+         * App-scoped single instance. The read-through cache is stateless beyond its Room DAO, so the
+         * four consumers (email handler, agent tool executor, inbox manager, Gmail importer) share ONE
+         * repository instead of each building their own.
+         */
+        fun get(context: Context): EmailRepository =
+            instance ?: synchronized(this) {
+                instance ?: EmailRepository(context.applicationContext).also { instance = it }
+            }
+    }
 }

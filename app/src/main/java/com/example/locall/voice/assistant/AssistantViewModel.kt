@@ -2,9 +2,9 @@ package com.example.locall.voice.assistant
 
 import android.content.Context
 import android.util.Log
+import com.example.locall.appContainer
 import com.example.locall.voice.SpeechRecognitionBridge
 import com.example.locall.voice.assistant.data.ChatMessageEntity
-import com.example.locall.voice.assistant.data.ConversationRepository
 import com.example.locall.voice.assistant.data.ConversationSession
 import com.example.locall.voice.music.MediaPlaybackGate
 import com.example.locall.voice.music.MusicIntent
@@ -49,7 +49,7 @@ class AssistantViewModel private constructor(appContext: Context) {
     private val ids = AtomicLong(0L)
 
     // ---- persistence ----
-    private val repo = ConversationRepository(app)
+    private val repo = app.appContainer.conversationRepository
     /** The session the on-screen transcript currently belongs to; null until the first turn is saved. */
     @Volatile private var currentSessionId: String? = null
     /** Serialises DB writes so persisted message order matches the order they appear on screen. */

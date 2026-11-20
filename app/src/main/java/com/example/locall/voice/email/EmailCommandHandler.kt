@@ -14,10 +14,15 @@ private const val MAX_REFINE_TURNS = 6
 /** Safety cap on the thread follow-up Q&A loop. */
 private const val MAX_FOLLOWUP_TURNS = 6
 
-class EmailCommandHandler(appContext: Context) {
+class EmailCommandHandler(
+    appContext: Context,
+    private val repo: EmailRepository,
+) {
 
     private val app = appContext.applicationContext
-    private val repo = EmailRepository(app)
+
+    /** Convenience wiring for callers that only hold a [Context] (falls back to the app-scoped repo). */
+    constructor(appContext: Context) : this(appContext, EmailRepository.get(appContext))
 
     /** Current email context + pending draft, kept across conversational turns. */
     private val session = EmailSession()

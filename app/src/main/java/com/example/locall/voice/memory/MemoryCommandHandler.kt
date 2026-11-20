@@ -5,9 +5,10 @@ import android.util.Log
 
 private const val TAG = "MemoryCommandHandler"
 
-class MemoryCommandHandler(appContext: Context) {
+class MemoryCommandHandler(private val repo: MemoryRepository) {
 
-    private val repo = MemoryRepository.get(appContext)
+    /** Convenience wiring for callers that only hold a [Context] (falls back to the app-scoped repo). */
+    constructor(appContext: Context) : this(MemoryRepository.get(appContext))
 
     suspend fun handle(
         context: Context,
