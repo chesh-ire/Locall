@@ -253,6 +253,8 @@ Java_com_example_locall_voice_LlmBridge_nativeLoad(JNIEnv *env, jobject, jstring
     cparams.n_threads = t.suggested_decode_threads;
     cparams.n_threads_batch = t.suggested_batch_threads;
     cparams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
+    cparams.type_k = GGML_TYPE_Q8_0;
+    cparams.type_v = GGML_TYPE_Q8_0;
 
     llama_context *ctx = llama_init_from_model(model, cparams);
     if (!ctx) {
@@ -661,6 +663,9 @@ Java_com_example_locall_voice_LlmBridge_nativeLoadWithCtx(
     cparams.n_threads = t.suggested_decode_threads;
     cparams.n_threads_batch = t.suggested_batch_threads;
     cparams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
+    // Mirror production's q8_0 KV cache so bench numbers stay comparable.
+    cparams.type_k = GGML_TYPE_Q8_0;
+    cparams.type_v = GGML_TYPE_Q8_0;
 
     llama_context *ctx = llama_init_from_model(model, cparams);
     if (!ctx) {
