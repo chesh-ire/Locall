@@ -29,7 +29,19 @@ struct LlmSession {
     llama_model *model = nullptr;
     llama_context *ctx = nullptr;
     const llama_vocab *vocab = nullptr;
+    // Prompt tokens currently resident in KV seq 0 at positions [0, cached_prompt.size()).
+    // Lets consecutive requests that share a textual prefix (same SYSTEM_PROMPT, etc.) skip
+    // re-prefilling that prefix. See run_generation() for the reuse logic.
+    std::vector<llama_token> cached_prompt;
 };
+
+// Length of the longest shared leading run of two token sequences.
+size_t common_prefix_len(const std::vector<llama_token> &a, const std::vector<llama_token> &b) {
+    size_t n = std::min(a.size(), b.size());
+    size_t i = 0;
+    while (i < n && a[i] == b[i]) i++;
+    return i;
+}
 
 const char *kCommandActionGrammar = R"GBNF(
 root        ::= "{" ws "\"action\"" ws ":" ws action-kind ws "," ws action-body ws "}" ws
@@ -156,21 +168,59 @@ std::string run_generation(
 
     std::string prompt = format_prompt(system_prompt, user_prompt);
     std::vector<llama_token> tokens = tokenize(session->vocab, prompt);
-    LOGI("generate: prompt=%zu tokens maxTokens=%d", tokens.size(), max_tokens);
-
-    llama_memory_clear(llama_get_memory(session->ctx), true);
 
     auto t_start = std::chrono::steady_clock::now();
 
+    llama_memory_t mem = llama_get_memory(session->ctx);
+
+    // --- Prompt prefix KV reuse ----------------------------------------------------------------
+    // The system preamble (and often more) is byte-identical across consecutive requests on this
+    // session — e.g. the same SYSTEM_PROMPT prefixes all 105 KB-import chunks, every email map
+    // step, every drafted reply. Keep the longest token prefix shared with the previous prompt
+    // resident in the KV cache and prefill only the divergent suffix. This is correctness-neutral:
+    // the KV entry for a token at a given position is fully determined by the identical preceding
+    // context, so decoding from the divergence point reproduces a full prefill exactly (same path
+    // llama-server uses). Cutting the redundant prefill also cuts the compute that drives heat.
+    size_t reuse = common_prefix_len(session->cached_prompt, tokens);
+
+    // Always leave at least the final prompt token to decode, so the sampler gets fresh logits.
+    if (reuse >= tokens.size()) reuse = tokens.size() - 1;
+
+    // The reused positions must actually be resident: SWA caches can evict the head (pos_min > 0),
+    // and a prior failure/clear may have left fewer than `reuse` tokens. Verify before trusting it.
+    if (reuse > 0) {
+        llama_pos pos_min = llama_memory_seq_pos_min(mem, 0);
+        llama_pos pos_max = llama_memory_seq_pos_max(mem, 0);
+        if (pos_min != 0 || pos_max < (llama_pos) reuse - 1) reuse = 0;
+    }
+
+    if (reuse == 0) {
+        llama_memory_clear(mem, true);
+    } else {
+        // Keep [0, reuse); drop the divergent suffix plus any tokens the previous run's decode
+        // appended past the prompt. Positions for the suffix below then auto-continue from `reuse`.
+        llama_memory_seq_rm(mem, 0, (llama_pos) reuse, -1);
+    }
+
     const int n_batch = (int) llama_n_batch(session->ctx);
-    for (size_t off = 0; off < tokens.size(); off += n_batch) {
+    for (size_t off = reuse; off < tokens.size(); off += n_batch) {
         int n = (int) std::min((size_t) n_batch, tokens.size() - off);
         llama_batch chunk = llama_batch_get_one(tokens.data() + off, n);
         if (llama_decode(session->ctx, chunk) != 0) {
             LOGW("prefill decode failed at token %zu", off);
+            llama_memory_clear(mem, true);     // KV now partial/inconsistent — reset for next call
+            session->cached_prompt.clear();
             return "";
         }
     }
+
+    // Record the resident prompt so the next request can reuse it. (Generated tokens get appended
+    // past tokens.size() during decode below; the next call's seq_rm drops them.)
+    session->cached_prompt = tokens;
+    size_t prefilled = tokens.size() - reuse;
+
+    LOGI("generate: prompt=%zu tokens (prefilled=%zu, reused=%zu) maxTokens=%d",
+         tokens.size(), prefilled, reuse, max_tokens);
 
     auto t_prefill_done = std::chrono::steady_clock::now();
 

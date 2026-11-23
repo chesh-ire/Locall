@@ -81,7 +81,7 @@ private fun AppRoot(vm: AssistantViewModel) {
         drawerContent = {
             ModalDrawerSheet(
                 drawerContainerColor = MaterialTheme.colorScheme.surface,
-                modifier = Modifier.widthIn(max = 348.dp),
+                modifier = Modifier.fillMaxWidth(0.6f),
             ) {
                 ConversationDrawerContent(
                     vm = vm,
