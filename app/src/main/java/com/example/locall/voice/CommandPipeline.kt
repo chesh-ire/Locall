@@ -116,7 +116,7 @@ object CommandPipeline {
         }
         if (action is CommandAction.Agent) {
             val speak: (String) -> Unit = { text -> AppTts.speak(appContext, text) }
-            return agent(appContext).handle(appContext, action.transcript, onStatus, confirm, speak, listen, contextBlock)
+            return agent(appContext).handle(appContext, action.transcript, onStatus, confirm, speak, listen, contextBlock, action.directChat)
         }
 
         val svc = VoiceAccessibilityService.instance

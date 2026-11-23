@@ -31,7 +31,13 @@ sealed interface CommandAction {
 
     data class Research(val transcript: String) : CommandAction
 
-    data class Agent(val transcript: String) : CommandAction
+    /**
+     * [directChat] = the capability router already determined this is a plain conversational
+     * question (not a tool/command), so the agent should answer it directly and SKIP its own
+     * second LLM tool-routing pass. Saves one serialized inference per chat turn and avoids
+     * mis-routing a question into a heavier handler (e.g. the plan generator).
+     */
+    data class Agent(val transcript: String, val directChat: Boolean = false) : CommandAction
 
     data class SetAlarm(val hour: Int, val minute: Int) : CommandAction
 

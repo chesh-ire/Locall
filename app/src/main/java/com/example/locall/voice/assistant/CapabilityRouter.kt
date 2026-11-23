@@ -7,6 +7,7 @@ import com.example.locall.voice.CommandPipeline
 import com.example.locall.voice.IntentMatcher
 import com.example.locall.voice.LlmBridge
 import com.example.locall.voice.ThermalGovernor
+import com.example.locall.voice.email.EmailIntents
 import org.json.JSONObject
 
 private const val TAG = "CapabilityRouter"
@@ -68,7 +69,14 @@ object CapabilityRouter {
                 }
                 append("Request: ").append(transcript)
             }
-            val json = LlmBridge.generateJson(CLASSIFY_SYSTEM, user, decodeThreads, tag = "assistant.route")
+            // Constrain to the capability schema. (Previously this used generateJson, which forces
+            // the DEVICE-ACTION grammar — so the classifier could only ever emit {"action":…} and
+            // never the {"capability":…} it's prompted for; every request fell through to the chat
+            // default, making this whole call wasted work. CAPABILITY_GRAMMAR fixes that.)
+            val json = LlmBridge.generateWithGrammar(
+                systemPrompt = CLASSIFY_SYSTEM, userPrompt = user, grammar = CAPABILITY_GRAMMAR,
+                temperature = 0.1f, maxTokens = 48, decodeThreads = decodeThreads, tag = "assistant.route",
+            )
             Log.i(TAG, "classify raw: $json")
             parse(context, json, transcript, onStatus)
         } catch (t: Throwable) {
@@ -86,16 +94,32 @@ object CapabilityRouter {
         val obj = runCatching { JSONObject(extractJson(raw)) }.getOrNull()
             ?: return Routed(CommandAction.Agent(transcript), false)
         val cap = obj.optString("capability", "chat").lowercase().trim()
-        val referential = obj.optBoolean("referential", false)
+        // The 1B classifier is biased toward referential=true even for self-contained requests; require
+        // an actual back-reference cue before carrying a prior turn's result forward.
+        val referential = obj.optBoolean("referential", false) && looksReferential(transcript)
         val action = when (cap) {
-            "email" -> CommandAction.Email(transcript)
-            "knowledge", "research", "documents" -> CommandAction.Research(transcript)
+            "email" -> if (EmailIntents.matches(transcript.lowercase())) {
+                CommandAction.Email(transcript)
+            } else {
+                Log.i(TAG, "classify said email but transcript has no email signal → chat")
+                CommandAction.Agent(transcript, directChat = true)
+            }
+            // The 1B classifier often reads a general-KNOWLEDGE question ("capital of France") as the
+            // documents capability. Only route to Research if the transcript actually references the
+            // user's own docs/notes; otherwise answer it as a plain chat question.
+            "knowledge", "research", "documents" -> if (looksLikeDocuments(transcript)) {
+                CommandAction.Research(transcript)
+            } else {
+                Log.i(TAG, "classify said knowledge but transcript has no document signal → chat")
+                CommandAction.Agent(transcript, directChat = true)
+            }
             "planning", "agent", "tasks", "inbox" -> CommandAction.Agent(transcript)
             "memory" -> CommandAction.Memory(transcript)
             "music" -> CommandAction.Music(transcript)
             "battery" -> CommandAction.Battery(transcript)
             "device" -> CommandPipeline.resolveDeviceAction(transcript, onStatus)
-            else -> CommandAction.Agent(transcript) // chat / unknown → agent's grounded chat fallback
+            // chat / unknown → answer directly; skip the agent's redundant second tool-routing pass.
+            else -> CommandAction.Agent(transcript, directChat = true)
         }
         Log.i(TAG, "classify -> capability=$cap referential=$referential action=$action")
         return Routed(action, referential)
@@ -113,6 +137,18 @@ object CapabilityRouter {
         return REFERENTIAL_CUES.any { t.contains(it) }
     }
 
+    private val DOCUMENT_CUES = listOf(
+        "document", "documents", "my notes", "note ", "notes", "imported", "knowledge base",
+        "my docs", "my files", "the report", "weekly report", "what did i save", "my pdf", "pdf",
+        "decisions", "commitments", "in my knowledge", "from my documents",
+    )
+
+    /** Does the request actually reference the user's imported documents/notes (vs. general knowledge)? */
+    private fun looksLikeDocuments(text: String): Boolean {
+        val t = text.lowercase()
+        return DOCUMENT_CUES.any { t.contains(it) }
+    }
+
     /** Pull the first {...} object out of the model's output in case it wraps the JSON in prose. */
     private fun extractJson(raw: String): String {
         val s = raw.indexOf('{')
@@ -120,33 +156,42 @@ object CapabilityRouter {
         return if (s in 0 until e) raw.substring(s, e + 1) else raw.trim()
     }
 
+    // Forces the classifier's output to be exactly the capability schema — valid JSON every time,
+    // and a tiny (~15-token) decode. Mirrors the enum in CLASSIFY_SYSTEM / parse().
+    private val CAPABILITY_GRAMMAR = """
+        root ::= "{" ws "\"capability\"" ws ":" ws cap ws "," ws "\"referential\"" ws ":" ws bool ws "}" ws
+        cap ::= "\"email\"" | "\"knowledge\"" | "\"planning\"" | "\"memory\"" | "\"music\"" | "\"battery\"" | "\"device\"" | "\"chat\""
+        bool ::= "true" | "false"
+        ws ::= [ \t\n]*
+    """.trimIndent()
+
+    // Kept deliberately SHORT: this prompt is prefilled on EVERY non-grammar request, and prefill is
+    // the dominant per-call cost. The output format is enforced by CAPABILITY_GRAMMAR, so we don't
+    // waste tokens describing the JSON — just the capability definitions and a few disambiguating
+    // examples. "chat" is the default for anything that isn't clearly one of the tools.
     private val CLASSIFY_SYSTEM = """
-        You route a user request to exactly ONE capability of an on-device personal assistant.
-        Capabilities:
-        - email: Gmail — read, summarize, search, send, reply to, delete emails or the inbox.
-        - knowledge: search or summarize the user's own imported documents and notes; decisions,
-          commitments, or a weekly report drawn from them.
-        - planning: to-do tasks, reminders, goals, "plan my day"; and the unified message inbox —
-          briefing or replying to captured WhatsApp / SMS / notification messages.
-        - memory: remember or recall personal facts about the user ("remember that…", "what do you
-          know about me").
-        - music: play, pause, skip music; play a song or artist.
-        - battery: battery saving or power advice.
-        - device: control the phone — open an app, type text, navigate, screenshot, lock, set an alarm
-          or timer, flashlight, volume.
-        - chat: a general question, or anything that doesn't fit the above.
+        Route the request to ONE capability. Default to "chat" unless it clearly matches another.
+        - email: the user's own Gmail/inbox — read, summarize, search, send, reply, delete.
+        - knowledge: search/summarize the user's own imported documents and notes.
+        - planning: manage the user's OWN tasks, reminders, goals ("add a task", "remind me", "plan my
+          day", "make a plan to finish X"); or brief/reply to their captured WhatsApp/SMS messages.
+          NOT generic advice or "how do I…" questions.
+        - memory: remember or recall personal facts about the user.
+        - music: play, pause, skip music or a song/artist.
+        - battery: battery or power advice.
+        - device: control the phone — open app, type, navigate, screenshot, lock, alarm, timer, torch, volume.
+        - chat: a general question or anything else (facts, advice, how-to, weather, math).
 
-        Also decide "referential": true if the request depends on the RESULT of an earlier turn in the
-        conversation (phrases like "those", "that", "based on that", "from the emails above"); otherwise false.
-
-        Output ONLY one JSON object, nothing else:
-        {"capability":"email|knowledge|planning|memory|music|battery|device|chat","referential":true|false}
+        Set "referential": true only if the request depends on an earlier turn's RESULT ("those", "that",
+        "based on that", "from the emails above"); else false.
 
         Examples:
-        "review my last 50 emails and tell me what I missed" -> {"capability":"email","referential":false}
-        "now help me plan my day based on those emails" -> {"capability":"planning","referential":true}
-        "summarise my unread whatsapp messages" -> {"capability":"planning","referential":false}
-        "search my documents for the Q3 budget" -> {"capability":"knowledge","referential":false}
-        "what's the capital of France" -> {"capability":"chat","referential":false}
+        "review my last 50 emails" -> email / false
+        "plan my day based on those emails" -> planning / true
+        "summarise my unread whatsapp" -> planning / false
+        "search my documents for the Q3 budget" -> knowledge / false
+        "how do I stay focused" -> chat / false
+        "what's the capital of France" -> chat / false
+        "add a task to call the bank" -> planning / false
     """.trimIndent()
 }

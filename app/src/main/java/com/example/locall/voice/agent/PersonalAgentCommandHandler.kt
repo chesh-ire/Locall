@@ -25,12 +25,16 @@ class PersonalAgentCommandHandler(appContext: Context) {
         speak: (String) -> Unit,
         listen: suspend (String) -> String?,
         contextBlock: String = "",
+        directChat: Boolean = false,
     ): String {
         val io = ToolExecutor.Io(speak, confirm, listen, onStatus)
         val first = try {
             // contextBlock (prior cross-capability result) only grounds the opening turn; the
             // agent's own ConversationManager carries context across the follow-up turns below.
-            orchestrator.run(context, transcript, convo, io, contextBlock)
+            // directChat: the capability router already knows this is a plain question, so answer it
+            // directly instead of running a second tool-routing inference. Only the OPENING turn can
+            // be pre-classified this way; follow-up turns below always route normally.
+            orchestrator.run(context, transcript, convo, io, contextBlock, directChat)
         } catch (t: Throwable) {
             Log.w(TAG, "agent run failed", t)
             return "the agent hit an error: ${t.javaClass.simpleName}"

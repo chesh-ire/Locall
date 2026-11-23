@@ -337,9 +337,10 @@ class ToolExecutor(context: Context) {
         val priorBlock = if (contextBlock.isBlank()) "" else "\nEarlier in this conversation:\n${contextBlock.trim()}"
         val decodeThreads = ThermalGovernor.decodeThreads(app)
         val system = """
-            You are LocaLL's personal agent. Answer the user's request briefly (1-3 sentences) using ONLY the
-            context below (their tasks, goals, any message in focus, and earlier conversation). If the answer
-            isn't in the context, say you don't have that information. Do not invent tasks, dates, or facts.
+            You are LocaLL's assistant. Answer the user's request directly and briefly (1-3 sentences).
+            When the request is about the user's own tasks, goals, messages, or plans, use ONLY the context
+            below and never invent their personal facts, tasks, or dates. For general questions, answer from
+            your own knowledge. If you genuinely don't know, say so in one sentence.
         """.trimIndent()
         val user = buildString {
             if (recent.isNotBlank()) append(recent).append('\n')
