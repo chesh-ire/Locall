@@ -118,6 +118,7 @@ fun ConversationScreen(
                 onValueChange = { input = it },
                 enabled = ui.inputEnabled,
                 busy = ui.busy,
+                cancelling = ui.phase == AssistantViewModel.Phase.Cancelling,
                 recording = ui.recording,
                 micEnabled = ui.micEnabled,
                 onSend = {
@@ -230,6 +231,8 @@ private fun HeroMic(
         label = "breathe",
     )
     val fill: Brush = if (recording) Brush.linearGradient(listOf(SignalRed, Magenta)) else brandBrush()
+    // See MicButton: key pointerInput on Unit so starting to record doesn't cancel the release handler.
+    val canStart by rememberUpdatedState(enabled)
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
@@ -237,12 +240,13 @@ private fun HeroMic(
             .scale(breathe)
             .clip(CircleShape)
             .background(if (enabled || recording) fill else Brush.linearGradient(listOf(Color.Gray, Color.Gray)))
-            .pointerInput(enabled) {
-                if (!enabled) return@pointerInput
+            .pointerInput(Unit) {
                 detectTapGestures(onPress = {
-                    onStart()
-                    tryAwaitRelease()
-                    onStop()
+                    if (canStart) {
+                        onStart()
+                        tryAwaitRelease()
+                        onStop()
+                    }
                 })
             },
     ) { Text(if (recording) "●" else "🎙️", color = Color.White, fontSize = if (recording) 52.sp else 60.sp) }
@@ -365,6 +369,7 @@ private fun InputBar(
     onValueChange: (String) -> Unit,
     enabled: Boolean,
     busy: Boolean,
+    cancelling: Boolean,
     recording: Boolean,
     micEnabled: Boolean,
     onSend: () -> Unit,
@@ -392,11 +397,7 @@ private fun InputBar(
             )
             Spacer(Modifier.width(8.dp))
             if (busy) {
-                IconButton(onClick = onCancel) {
-                    Box(Modifier.size(40.dp).clip(CircleShape).background(SignalRed), contentAlignment = Alignment.Center) {
-                        Text("■", color = Color.White, fontSize = 16.sp)
-                    }
-                }
+                StopMicButton(cancelling = cancelling, onStop = onCancel)
             } else if (value.isNotBlank()) {
                 IconButton(onClick = onSend, enabled = enabled) {
                     Box(Modifier.size(44.dp).clip(CircleShape).background(brandBrush()), contentAlignment = Alignment.Center) {
@@ -419,22 +420,53 @@ private fun MicButton(recording: Boolean, enabled: Boolean, onStart: () -> Unit,
         label = "pulse",
     )
     val fill: Brush = if (recording) Brush.linearGradient(listOf(SignalRed, Magenta)) else brandBrush()
+    val canStart by rememberUpdatedState(enabled)
     Box(
         Modifier
             .size(48.dp)
             .scale(if (recording) pulse else 1f)
             .clip(CircleShape)
             .background(if (enabled || recording) fill else Brush.linearGradient(listOf(Color.Gray, Color.Gray)))
-            .pointerInput(enabled) {
-                if (!enabled) return@pointerInput
+            .pointerInput(Unit) {
                 detectTapGestures(onPress = {
-                    onStart()
-                    tryAwaitRelease()
-                    onStop()
+                    if (canStart) {
+                        onStart()
+                        tryAwaitRelease()
+                        onStop()
+                    }
                 })
             },
         contentAlignment = Alignment.Center,
     ) {
         Text(if (recording) "●" else "🎙️", color = Color.White, fontSize = if (recording) 18.sp else 20.sp)
+    }
+}
+
+
+@Composable
+private fun StopMicButton(cancelling: Boolean, onStop: () -> Unit) {
+    val transition = rememberInfiniteTransition(label = "stopMic")
+    val pulse by transition.animateFloat(
+        initialValue = 1f, targetValue = 1.1f,
+        animationSpec = infiniteRepeatable(tween(700, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "stopPulse",
+    )
+    Box(
+        Modifier
+            .size(48.dp)
+            .scale(if (cancelling) 1f else pulse)
+            .clip(CircleShape)
+            .background(Brush.linearGradient(listOf(SignalRed, Magenta)))
+            .pointerInput(cancelling) {
+                if (cancelling) return@pointerInput
+                detectTapGestures(onTap = { onStop() })
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (cancelling) {
+            CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(20.dp), color = Color.White)
+        } else {
+            Text("🎙️", color = Color.White, fontSize = 20.sp)
+        }
     }
 }
