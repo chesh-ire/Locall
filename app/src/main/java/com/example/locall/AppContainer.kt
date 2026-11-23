@@ -2,6 +2,8 @@ package com.example.locall
 
 import android.app.Application
 import android.content.Context
+import android.util.Log
+import com.example.locall.voice.LlmBridge
 import com.example.locall.voice.agent.PersonalAgentCommandHandler
 import com.example.locall.voice.agent.data.GoalManager
 import com.example.locall.voice.agent.data.TaskManager
@@ -16,6 +18,10 @@ import com.example.locall.voice.music.MusicCommandHandler
 import com.example.locall.voice.music.history.MusicHistoryRepository
 import com.example.locall.voice.research.ResearchCommandHandler
 import com.example.locall.voice.research.data.KnowledgeRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * The application's single composition root (manual dependency injection).
@@ -61,6 +67,20 @@ class AppContainer(context: Context) {
  */
 class LocallApp : Application() {
     val container: AppContainer by lazy { AppContainer(this) }
+
+    /** App-scoped scope for fire-and-forget startup work; [SupervisorJob] so one failure stays isolated. */
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    override fun onCreate() {
+        super.onCreate()
+        appScope.launch {
+            try {
+                LlmBridge.ensureLoaded(this@LocallApp)
+            } catch (t: Throwable) {
+                Log.w("LocallApp", "LLM warm-up preload failed; will load lazily on first use", t)
+            }
+        }
+    }
 }
 
 /**

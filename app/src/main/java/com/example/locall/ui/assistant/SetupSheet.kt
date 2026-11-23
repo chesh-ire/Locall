@@ -9,13 +9,21 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Accessibility
+import androidx.compose.material.icons.outlined.Bedtime
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.MailOutline
+import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.Sms
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.locall.ui.components.SectionCard
@@ -68,16 +76,16 @@ fun SetupSheetContent(modifier: Modifier = Modifier) {
         Text("Connections & permissions", style = MaterialTheme.typography.titleLarge)
 
         SectionCard(title = "Services", leading = "🔌") {
-            SetupRow("🎤", "Microphone", if (micGranted) "Granted" else "Needed to hear you") {
+            SetupRow(Icons.Outlined.Mic, "Microphone", if (micGranted) "Granted" else "Needed to hear you") {
                 if (micGranted) DonePill()
                 else FilledTonalButton(onClick = { micLauncher.launch(Manifest.permission.RECORD_AUDIO) }) { Text("Grant") }
             }
             Divider()
-            SetupRow("👆", "Accessibility", "Lets LocaLL type and control the device") {
+            SetupRow(Icons.Outlined.Accessibility, "Accessibility", "Lets LocaLL type and control the device") {
                 OutlinedButton(onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }) { Text("Open") }
             }
             Divider()
-            SetupRow("💬", "Message access", if (notifAccess) "WhatsApp & SMS captured" else "For WhatsApp / SMS briefings") {
+            SetupRow(Icons.Outlined.Sms, "Message access", if (notifAccess) "WhatsApp & SMS captured" else "For WhatsApp / SMS briefings") {
                 if (notifAccess) DonePill()
                 else OutlinedButton(onClick = {
                     context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
@@ -85,7 +93,7 @@ fun SetupSheetContent(modifier: Modifier = Modifier) {
             }
             Divider()
             SetupRow(
-                "✉️", "Gmail",
+                Icons.Outlined.MailOutline, "Gmail",
                 gmailError?.let { "Error: $it" } ?: if (gmailConnected) "Connected" else "Read & manage email",
             ) {
                 if (gmailConnected) DonePill()
@@ -101,7 +109,7 @@ fun SetupSheetContent(modifier: Modifier = Modifier) {
                 }) { Text("Connect") }
             }
             Divider()
-            SetupRow("🌙", "Always-on", "Wake with “hey locall”") {
+            SetupRow(Icons.Outlined.Bedtime, "Always-on", "Wake with “hey locall”") {
                 Switch(
                     checked = alwaysOn,
                     enabled = micGranted,
@@ -125,16 +133,29 @@ fun SetupSheetContent(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun SetupRow(icon: String, title: String, subtitle: String, trailing: @Composable () -> Unit) {
+private fun SetupRow(icon: ImageVector, title: String, subtitle: String, trailing: @Composable () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(icon, fontSize = 20.sp)
+        Icon(
+            icon,
+            contentDescription = null,
+            modifier = Modifier.size(22.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleSmall)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
         Spacer(Modifier.width(12.dp))
-        trailing()
+        // The action never gives up width to the label column, so its button text can't be
+        // squeezed into a vertical, one-character-per-line stack on a narrow drawer.
+        Box(Modifier.wrapContentWidth()) { trailing() }
     }
 }
 
@@ -146,7 +167,12 @@ private fun Divider() {
 @Composable
 private fun DonePill() {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("✓", color = SignalGreen, style = MaterialTheme.typography.titleMedium)
+        Icon(
+            Icons.Outlined.CheckCircle,
+            contentDescription = null,
+            tint = SignalGreen,
+            modifier = Modifier.size(18.dp),
+        )
         Spacer(Modifier.width(6.dp))
         Text("Ready", style = MaterialTheme.typography.labelLarge, color = SignalGreen)
     }

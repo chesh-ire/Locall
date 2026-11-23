@@ -81,7 +81,9 @@ private fun AppRoot(vm: AssistantViewModel) {
         drawerContent = {
             ModalDrawerSheet(
                 drawerContainerColor = MaterialTheme.colorScheme.surface,
-                modifier = Modifier.fillMaxWidth(0.6f),
+                // Wide enough that titles, subtitles and the trailing action buttons all fit on
+                // one line; capped so it never covers the whole screen on large devices.
+                modifier = Modifier.fillMaxWidth(0.88f).widthIn(max = 360.dp),
             ) {
                 ConversationDrawerContent(
                     vm = vm,
