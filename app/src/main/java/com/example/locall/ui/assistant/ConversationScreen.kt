@@ -68,7 +68,7 @@ fun ConversationScreen(
     }
 
     BrandBackground {
-        Column(modifier.fillMaxSize()) {
+        Column(modifier.fillMaxSize().imePadding()) {
             TopBar(
                 busy = ui.busy,
                 onOpenMenu = onOpenMenu,

@@ -56,6 +56,7 @@ class AssistantOrchestrator(appContext: Context) {
     private fun labelFor(action: CommandAction): String = when (action) {
         is CommandAction.Email -> "Email"
         is CommandAction.Research -> "Knowledge"
+        is CommandAction.Calendar -> "Calendar"
         is CommandAction.Agent -> "Assistant"
         is CommandAction.Memory -> "Memory"
         is CommandAction.Music -> "Music"

@@ -7,6 +7,7 @@ import com.example.locall.voice.CommandPipeline
 import com.example.locall.voice.IntentMatcher
 import com.example.locall.voice.LlmBridge
 import com.example.locall.voice.ThermalGovernor
+import com.example.locall.voice.calendar.CalendarIntents
 import com.example.locall.voice.email.EmailIntents
 import org.json.JSONObject
 
@@ -41,6 +42,15 @@ object CapabilityRouter {
     ): Routed {
         val t = transcript.trim()
         if (t.isEmpty()) return Routed(CommandAction.Unrecognized(transcript, "empty"), false)
+
+        // Calendar agenda queries are fully deterministic (window parsed from the text, events read from
+        // the system provider), so resolve them here with ZERO inference. This is the fast-path that
+        // replaces the old behaviour where "what meetings do I have tomorrow" fell through two LLM
+        // routing passes into the task planner before answering the wrong thing.
+        if (CalendarIntents.matches(t)) {
+            Log.i(TAG, "calendar grammar -> Calendar")
+            return Routed(CommandAction.Calendar(t), referential = false)
+        }
 
         matcher.grammarOnly(t)?.let {
             // Grammar bypasses the LLM's referential detection, so apply a cheap phrase heuristic here —
@@ -113,6 +123,9 @@ object CapabilityRouter {
                 Log.i(TAG, "classify said knowledge but transcript has no document signal → chat")
                 CommandAction.Agent(transcript, directChat = true)
             }
+            // The deterministic fast-path in route() catches most calendar phrasings; this is the
+            // fallback for ones it didn't (e.g. the request leads with an unusual verb).
+            "calendar" -> CommandAction.Calendar(transcript)
             "planning", "agent", "tasks", "inbox" -> CommandAction.Agent(transcript)
             "memory" -> CommandAction.Memory(transcript)
             "music" -> CommandAction.Music(transcript)
@@ -160,7 +173,7 @@ object CapabilityRouter {
     // and a tiny (~15-token) decode. Mirrors the enum in CLASSIFY_SYSTEM / parse().
     private val CAPABILITY_GRAMMAR = """
         root ::= "{" ws "\"capability\"" ws ":" ws cap ws "," ws "\"referential\"" ws ":" ws bool ws "}" ws
-        cap ::= "\"email\"" | "\"knowledge\"" | "\"planning\"" | "\"memory\"" | "\"music\"" | "\"battery\"" | "\"device\"" | "\"chat\""
+        cap ::= "\"email\"" | "\"knowledge\"" | "\"planning\"" | "\"calendar\"" | "\"memory\"" | "\"music\"" | "\"battery\"" | "\"device\"" | "\"chat\""
         bool ::= "true" | "false"
         ws ::= [ \t\n]*
     """.trimIndent()
@@ -176,6 +189,8 @@ object CapabilityRouter {
         - planning: manage the user's OWN tasks, reminders, goals ("add a task", "remind me", "plan my
           day", "make a plan to finish X"); or brief/reply to their captured WhatsApp/SMS messages.
           NOT generic advice or "how do I…" questions.
+        - calendar: read the user's calendar/meetings/schedule for a day or week ("what meetings do I
+          have tomorrow", "what's on my calendar", "my next meeting"). READ-ONLY agenda lookups.
         - memory: remember or recall personal facts about the user.
         - music: play, pause, skip music or a song/artist.
         - battery: battery or power advice.
@@ -193,5 +208,7 @@ object CapabilityRouter {
         "how do I stay focused" -> chat / false
         "what's the capital of France" -> chat / false
         "add a task to call the bank" -> planning / false
+        "what meetings do I have tomorrow" -> calendar / false
+        "what's on my calendar today" -> calendar / false
     """.trimIndent()
 }

@@ -38,6 +38,12 @@
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
+    <!-- Calendar feature: read-only agenda lookups ("what meetings do I have tomorrow") are served
+         straight from the system CalendarContract provider, so events from Google/Outlook/Samsung
+         calendars all show up. Runtime (dangerous) permission — requested on first launch alongside
+         notifications; nothing is ever written back to the calendar. -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+
     <!-- Package visibility (Android 11+): we're a voice launcher, so we must be able
          to see every launchable app in order to open it by spoken name. -->
     <queries>

@@ -10,6 +10,7 @@ import com.example.locall.voice.agent.data.TaskManager
 import com.example.locall.voice.agent.inbox.InboxManager
 import com.example.locall.voice.assistant.data.ConversationRepository
 import com.example.locall.voice.battery.BatteryCommandHandler
+import com.example.locall.voice.calendar.CalendarCommandHandler
 import com.example.locall.voice.email.EmailCommandHandler
 import com.example.locall.voice.email.cache.EmailRepository
 import com.example.locall.voice.memory.MemoryCommandHandler
@@ -60,6 +61,7 @@ class AppContainer(context: Context) {
     val batteryHandler: BatteryCommandHandler by lazy { BatteryCommandHandler(app) }
     val researchHandler: ResearchCommandHandler by lazy { ResearchCommandHandler(app) }
     val agentHandler: PersonalAgentCommandHandler by lazy { PersonalAgentCommandHandler(app) }
+    val calendarHandler: CalendarCommandHandler by lazy { CalendarCommandHandler(app) }
 }
 
 /**

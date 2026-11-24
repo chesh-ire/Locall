@@ -23,6 +23,7 @@ object CommandPipeline {
     private fun battery(context: Context) = context.appContainer.batteryHandler
     private fun research(context: Context) = context.appContainer.researchHandler
     private fun agent(context: Context) = context.appContainer.agentHandler
+    private fun calendar(context: Context) = context.appContainer.calendarHandler
 
     @Volatile private var appContextForLlm: Context? = null
 
@@ -114,6 +115,10 @@ object CommandPipeline {
             val speak: (String) -> Unit = { text -> AppTts.speak(appContext, text) }
             return research(appContext).handle(appContext, action.transcript, onStatus, speak, confirm, contextBlock)
         }
+        if (action is CommandAction.Calendar) {
+            val speak: (String) -> Unit = { text -> AppTts.speak(appContext, text) }
+            return calendar(appContext).handle(appContext, action.transcript, onStatus, speak)
+        }
         if (action is CommandAction.Agent) {
             val speak: (String) -> Unit = { text -> AppTts.speak(appContext, text) }
             return agent(appContext).handle(appContext, action.transcript, onStatus, confirm, speak, listen, contextBlock, action.directChat)
@@ -184,6 +189,7 @@ object CommandPipeline {
             is CommandAction.Email -> error("handled above")
             is CommandAction.Battery -> error("handled above")
             is CommandAction.Research -> error("handled above")
+            is CommandAction.Calendar -> error("handled above")
             is CommandAction.Agent -> error("handled above")
             is CommandAction.Volume -> error("handled above")
             is CommandAction.SetAlarm -> error("handled above")

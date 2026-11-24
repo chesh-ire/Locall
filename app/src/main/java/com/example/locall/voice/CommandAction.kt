@@ -31,6 +31,8 @@ sealed interface CommandAction {
 
     data class Research(val transcript: String) : CommandAction
 
+    data class Calendar(val transcript: String) : CommandAction
+
     /**
      * [directChat] = the capability router already determined this is a plain conversational
      * question (not a tool/command), so the agent should answer it directly and SKIP its own

@@ -70,6 +70,17 @@ private fun AppRoot(vm: AssistantViewModel) {
         }
     }
 
+    // Ask for calendar-read permission once so "what meetings do I have tomorrow" works without a
+    // settings detour. Read-only; the handler degrades gracefully if the user declines.
+    val calendarLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    LaunchedEffect(Unit) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            calendarLauncher.launch(Manifest.permission.READ_CALENDAR)
+        }
+    }
+
     // Storage Access Framework picker for the attach(+) → document import flow.
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
