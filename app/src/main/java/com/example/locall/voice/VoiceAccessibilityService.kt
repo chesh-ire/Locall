@@ -2,18 +2,25 @@ package com.example.locall.voice
 
 import android.Manifest
 import android.accessibilityservice.AccessibilityService
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.example.locall.BuildConfig
+import com.example.locall.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
@@ -23,6 +30,9 @@ class VoiceAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val TAG = "VoiceA11y"
+
+        private const val BANKING_CHANNEL_ID = "banking_guard"
+        private const val BANKING_NOTIF_ID = 42_001
 
         @Volatile
         var instance: VoiceAccessibilityService? = null
@@ -40,6 +50,10 @@ class VoiceAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         Log.i(TAG, "Accessibility service connected")
+        // If we're reconnecting after a banking auto-pause, the user just re-enabled us —
+        // clear the "tap to re-enable" prompt.
+        ContextCompat.getSystemService(this, NotificationManager::class.java)
+            ?.cancel(BANKING_NOTIF_ID)
         if (BuildConfig.DEBUG) registerDebugReceiver()
     }
 
@@ -74,8 +88,72 @@ class VoiceAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        // Banking apps block while a gesture/screen-read accessibility service is enabled.
+        // When one comes to the foreground, pause ourselves so it works again.
+        if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        val pkg = event.packageName ?: return
+        if (BankingApps.isBankingApp(pkg)) pauseForBanking(pkg.toString())
+    }
+
     override fun onInterrupt() {}
+
+    /**
+     * Turn the accessibility service off (removing it from the system's enabled list, which is
+     * what banks check) and post a persistent notification the user taps to turn it back on when
+     * they're done. We post the prompt now rather than when they leave the bank because disabling
+     * the service stops event delivery — we'd be blind to the "leaving" moment. Re-enabling fires
+     * onServiceConnected(), which clears the notification.
+     */
+    private fun pauseForBanking(bankPackage: String) {
+        Log.i(TAG, "Banking app in foreground ($bankPackage) — pausing accessibility service")
+        postReEnablePrompt()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            disableSelf()
+        } else {
+            // Pre-API 24 has no disableSelf(); send the user to toggle it manually.
+            startActivity(accessibilitySettingsIntent().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+    }
+
+    private fun postReEnablePrompt() {
+        ensureBankingChannel()
+        val pi = PendingIntent.getActivity(
+            this, 0, accessibilitySettingsIntent(),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notif = NotificationCompat.Builder(this, BANKING_CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("LocaLL paused for banking")
+            .setContentText("Voice control is off so your banking app runs. Tap to turn it back on when you're done.")
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .bigText("Voice control is off so your banking app runs. Tap to turn it back on when you're done."),
+            )
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .setContentIntent(pi)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .build()
+        ContextCompat.getSystemService(this, NotificationManager::class.java)
+            ?.notify(BANKING_NOTIF_ID, notif)
+    }
+
+    private fun accessibilitySettingsIntent(): Intent =
+        Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+
+    private fun ensureBankingChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val nm = ContextCompat.getSystemService(this, NotificationManager::class.java) ?: return
+        if (nm.getNotificationChannel(BANKING_CHANNEL_ID) != null) return
+        nm.createNotificationChannel(
+            NotificationChannel(
+                BANKING_CHANNEL_ID, "Banking guard", NotificationManager.IMPORTANCE_DEFAULT,
+            ).apply {
+                description = "Prompts you to re-enable voice control after using a banking app"
+            },
+        )
+    }
 
     fun speak(text: String) {
         AppTts.speak(applicationContext, text)

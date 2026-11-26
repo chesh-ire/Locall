@@ -24,6 +24,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.Stop
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -41,26 +45,21 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.example.locall.ui.theme.Cyan
-import com.example.locall.ui.theme.CyanBright
-import com.example.locall.ui.theme.Magenta
-import com.example.locall.ui.theme.SignalGreen
 import com.example.locall.ui.theme.SignalRed
-import com.example.locall.ui.theme.Violet
-import com.example.locall.ui.theme.VioletBright
-
-fun brandBrush(): Brush = Brush.linearGradient(listOf(VioletBright, Cyan))
 
 /**
- * The Perf Lab mark: a green Erlenmeyer lab flask, drawn as a vector so it stays crisp at any size.
+ * The brand fill: a restrained, same-hue indigo with just enough vertical shift to read as a solid,
+ * premium surface — not a rainbow gradient.
+ */
+fun brandBrush(): Brush = Brush.verticalGradient(listOf(Color(0xFF5A6FD6), Color(0xFF42539E)))
+
+/**
+ * The Perf Lab mark: an Erlenmeyer lab flask, drawn as a vector so it stays crisp at any size.
+ * Defaults to a muted on-surface tint rather than a neon fill.
  */
 @Composable
-fun FlaskIcon(modifier: Modifier = Modifier, tint: Color = SignalGreen) {
+fun FlaskIcon(modifier: Modifier = Modifier, tint: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
     Canvas(Modifier.size(22.dp).then(modifier)) {
         val w = size.width
         val h = size.height
@@ -90,7 +89,7 @@ fun FlaskIcon(modifier: Modifier = Modifier, tint: Color = SignalGreen) {
             lineTo(px(0.725f), py(liquidTop))
             close()
         }
-        drawPath(liquid, color = tint.copy(alpha = 0.35f))
+        drawPath(liquid, color = tint.copy(alpha = 0.22f))
         drawPath(
             body,
             color = tint,
@@ -106,8 +105,6 @@ fun FlaskIcon(modifier: Modifier = Modifier, tint: Color = SignalGreen) {
         )
     }
 }
-
-private fun recordingBrush(): Brush = Brush.linearGradient(listOf(SignalRed, Magenta))
 
 @Composable
 fun BrandHeader(
@@ -128,17 +125,18 @@ fun BrandHeader(
         } else {
             Box(
                 Modifier
-                    .height(34.dp)
-                    .width(5.dp)
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(brandBrush()),
+                    .height(26.dp)
+                    .width(3.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(MaterialTheme.colorScheme.primary),
             )
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 title,
-                style = MaterialTheme.typography.headlineSmall.copy(brush = brandBrush()),
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onSurface,
             )
             if (subtitle != null) {
                 Text(
@@ -160,7 +158,7 @@ enum class PillTone { Neutral, Active, Warn }
 @Composable
 fun StatusPill(text: String, tone: PillTone = PillTone.Neutral, modifier: Modifier = Modifier) {
     val dot = when (tone) {
-        PillTone.Active -> Cyan
+        PillTone.Active -> MaterialTheme.colorScheme.secondary
         PillTone.Warn -> SignalRed
         PillTone.Neutral -> MaterialTheme.colorScheme.onSurfaceVariant
     }
@@ -190,7 +188,7 @@ fun SectionCard(
     title: String,
     modifier: Modifier = Modifier,
     subtitle: String? = null,
-    leading: String? = null,
+    leading: (@Composable () -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Surface(
@@ -202,8 +200,8 @@ fun SectionCard(
         Column(Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (leading != null) {
-                    Text(leading, fontSize = 18.sp)
-                    Spacer(Modifier.width(10.dp))
+                    leading()
+                    Spacer(Modifier.width(12.dp))
                 }
                 Column(Modifier.weight(1f)) {
                     Text(title, style = MaterialTheme.typography.titleMedium)
@@ -234,90 +232,48 @@ fun GlowMic(
     val transition = rememberInfiniteTransition(label = "mic")
     val breathe by transition.animateFloat(
         initialValue = 1f,
-        targetValue = if (state == MicState.Idle) 1.04f else 1f,
-        animationSpec = infiniteRepeatable(tween(2200, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        targetValue = if (state == MicState.Recording) 1.04f else 1f,
+        animationSpec = infiniteRepeatable(tween(1600, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "breathe",
-    )
-    val ringScale by transition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.55f,
-        animationSpec = infiniteRepeatable(tween(1400, easing = FastOutSlowInEasing), RepeatMode.Restart),
-        label = "ringScale",
-    )
-    val ringAlpha by transition.animateFloat(
-        initialValue = 0.45f,
-        targetValue = 0f,
-        animationSpec = infiniteRepeatable(tween(1400, easing = FastOutSlowInEasing), RepeatMode.Restart),
-        label = "ringAlpha",
     )
 
     val fill: Brush = when (state) {
         MicState.Disabled -> Brush.linearGradient(
             listOf(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.surfaceVariant),
         )
-        MicState.Recording -> recordingBrush()
+        MicState.Recording -> Brush.linearGradient(listOf(SignalRed, SignalRed))
         else -> brandBrush()
     }
     val onColor = when (state) {
         MicState.Disabled -> MaterialTheme.colorScheme.onSurfaceVariant
         else -> Color.White
     }
-    val haloColor = if (state == MicState.Recording) SignalRed else CyanBright
 
     Box(
         contentAlignment = Alignment.Center,
-        modifier = modifier.size(260.dp),
+        modifier = modifier.size(200.dp),
     ) {
-        if (state == MicState.Recording) {
-            Box(
-                Modifier
-                    .size(176.dp)
-                    .scale(ringScale)
-                    .graphicsLayer { alpha = ringAlpha }
-                    .clip(CircleShape)
-                    .background(haloColor),
-            )
-        }
-        if (state == MicState.Idle || state == MicState.Busy) {
-            Box(
-                Modifier
-                    .size(210.dp)
-                    .graphicsLayer { alpha = 0.18f }
-                    .clip(CircleShape)
-                    .background(
-                        Brush.radialGradient(listOf(Violet, Color.Transparent)),
-                    ),
-            )
-        }
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .size(176.dp)
-                .scale(breathe)
+                .size(132.dp)
+                .scale(if (state == MicState.Recording) breathe else 1f)
                 .clip(CircleShape)
                 .background(fill)
-                .drawBehind {
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(Color.White.copy(alpha = 0.22f), Color.Transparent),
-                            center = Offset(size.width * 0.3f, size.height * 0.25f),
-                            radius = size.minDimension * 0.7f,
-                        ),
-                    )
-                }
                 .then(gestureModifier),
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(if (state == MicState.Recording) "●" else "🎙️", fontSize = 34.sp)
-                Spacer(Modifier.height(6.dp))
+                Icon(
+                    if (state == MicState.Recording) Icons.Outlined.Stop else Icons.Outlined.Mic,
+                    contentDescription = null,
+                    tint = onColor,
+                    modifier = Modifier.size(32.dp),
+                )
+                Spacer(Modifier.height(8.dp))
                 Text(
                     label,
                     color = onColor,
-                    textAlign = TextAlign.Center,
-                    style = MaterialTheme.typography.labelLarge.copy(
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp,
-                    ),
+                    style = MaterialTheme.typography.labelLarge,
                 )
             }
         }
@@ -326,24 +282,18 @@ fun GlowMic(
 
 @Composable
 fun BrandBackground(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val tint = MaterialTheme.colorScheme.primary
     Box(
         modifier
             .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
             .drawBehind {
-                // Violet aurora up top…
+                // A single, very faint wash near the top — presence without the neon aurora.
                 drawRect(
                     Brush.radialGradient(
-                        colors = listOf(Violet.copy(alpha = 0.14f), Color.Transparent),
-                        center = Offset(size.width * 0.5f, size.height * 0.06f),
-                        radius = size.width * 0.95f,
-                    ),
-                )
-                // …with a cool cyan wash drifting up from the lower corner.
-                drawRect(
-                    Brush.radialGradient(
-                        colors = listOf(Cyan.copy(alpha = 0.07f), Color.Transparent),
-                        center = Offset(size.width * 0.12f, size.height * 0.92f),
-                        radius = size.width * 0.8f,
+                        colors = listOf(tint.copy(alpha = 0.05f), Color.Transparent),
+                        center = Offset(size.width * 0.5f, size.height * 0.02f),
+                        radius = size.width * 1.1f,
                     ),
                 )
             },

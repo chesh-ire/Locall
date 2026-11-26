@@ -75,7 +75,7 @@ fun SetupSheetContent(modifier: Modifier = Modifier) {
     ) {
         Text("Connections & permissions", style = MaterialTheme.typography.titleLarge)
 
-        SectionCard(title = "Services", leading = "🔌") {
+        SectionCard(title = "Services") {
             SetupRow(Icons.Outlined.Mic, "Microphone", if (micGranted) "Granted" else "Needed to hear you") {
                 if (micGranted) DonePill()
                 else FilledTonalButton(onClick = { micLauncher.launch(Manifest.permission.RECORD_AUDIO) }) { Text("Grant") }
@@ -109,7 +109,7 @@ fun SetupSheetContent(modifier: Modifier = Modifier) {
                 }) { Text("Connect") }
             }
             Divider()
-            SetupRow(Icons.Outlined.Bedtime, "Always-on", "Wake with “hey locall”") {
+            SetupRow(Icons.Outlined.Bedtime, "Always-on", "Wake with \"hey locall\"") {
                 Switch(
                     checked = alwaysOn,
                     enabled = micGranted,

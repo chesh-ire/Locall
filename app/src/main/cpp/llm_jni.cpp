@@ -25,6 +25,15 @@ void ensure_backend_init() {
     std::call_once(g_backend_init_once, []() { llama_backend_init(); });
 }
 
+// Serializes ALL native model operations (load, generate, release, token count, model info, stats
+// read) process-wide. Production inference is already confined to a single Kotlin dispatcher thread,
+// so in the normal path this lock is uncontended. It exists as a backstop: the non-suspend bench /
+// utility entry points (nativeGenerateBenchmark, nativeCountTokens, …) can be invoked from other
+// threads — and even with the production handle via handleForBenchmark — so without this lock a
+// stray caller could drive a second llama_decode on a context already in use and corrupt its KV
+// state. A lock_guard here makes that impossible regardless of which thread calls in.
+std::mutex g_inference_mutex;
+
 struct LlmSession {
     llama_model *model = nullptr;
     llama_context *ctx = nullptr;
@@ -156,6 +165,7 @@ std::string run_generation(
         LlmSession *session, const std::string &system_prompt, const std::string &user_prompt,
         const char *grammar, float temperature, int max_tokens, int decode_threads,
         bool stop_on_blank = true) {
+    std::lock_guard<std::mutex> inference_lock(g_inference_mutex);
     bool pinned = pin_current_thread_to(topology().performance_cores);
     bool prioritized = setpriority(PRIO_PROCESS, 0, -10) == 0;
 
@@ -284,6 +294,7 @@ Java_com_example_locall_voice_NativeThreads_nativePinToEfficiencyCores(JNIEnv *,
 JNIEXPORT jlong JNICALL
 Java_com_example_locall_voice_LlmBridge_nativeLoad(JNIEnv *env, jobject, jstring modelPath) {
     ensure_backend_init();
+    std::lock_guard<std::mutex> inference_lock(g_inference_mutex);
 
     const char *path = env->GetStringUTFChars(modelPath, nullptr);
     llama_model_params mparams = llama_model_default_params();
@@ -381,6 +392,7 @@ Java_com_example_locall_voice_LlmBridge_nativeGenerateWithGrammar(
 
 JNIEXPORT jstring JNICALL
 Java_com_example_locall_voice_LlmBridge_nativeLastStats(JNIEnv *env, jobject) {
+    std::lock_guard<std::mutex> inference_lock(g_inference_mutex);
     double tok_per_sec = g_last_stats.decode_ms > 0
             ? (g_last_stats.generated_tokens * 1000.0 / g_last_stats.decode_ms) : 0.0;
     char buf[256];
@@ -393,6 +405,7 @@ Java_com_example_locall_voice_LlmBridge_nativeLastStats(JNIEnv *env, jobject) {
 
 JNIEXPORT jstring JNICALL
 Java_com_example_locall_voice_LlmBridge_nativeLastMetrics(JNIEnv *env, jobject) {
+    std::lock_guard<std::mutex> inference_lock(g_inference_mutex);
     char buf[160];
     snprintf(buf, sizeof(buf), "%zu,%d,%.3f,%.3f,%ld",
              g_last_stats.prompt_tokens, g_last_stats.generated_tokens,
@@ -402,6 +415,7 @@ Java_com_example_locall_voice_LlmBridge_nativeLastMetrics(JNIEnv *env, jobject) 
 
 JNIEXPORT void JNICALL
 Java_com_example_locall_voice_LlmBridge_nativeRelease(JNIEnv *, jobject, jlong handle) {
+    std::lock_guard<std::mutex> inference_lock(g_inference_mutex);
     auto *session = reinterpret_cast<LlmSession *>(handle);
     if (!session) return;
     if (session->ctx) llama_free(session->ctx);
@@ -414,6 +428,7 @@ JNIEXPORT jstring JNICALL
 Java_com_example_locall_voice_LlmBridge_nativeModelInfo(JNIEnv *env, jobject, jlong handle) {
     auto *session = reinterpret_cast<LlmSession *>(handle);
     if (!session) return env->NewStringUTF("");
+    std::lock_guard<std::mutex> inference_lock(g_inference_mutex);
     char desc[256] = {0};
     llama_model_desc(session->model, desc, sizeof(desc));
     uint64_t size_bytes = llama_model_size(session->model);
@@ -446,6 +461,7 @@ Java_com_example_locall_voice_LlmBridge_nativeCountTokens(
         JNIEnv *env, jobject, jlong handle, jstring systemPrompt, jstring userPrompt) {
     auto *session = reinterpret_cast<LlmSession *>(handle);
     if (!session) return -1;
+    std::lock_guard<std::mutex> inference_lock(g_inference_mutex);
     const char *sys_chars = env->GetStringUTFChars(systemPrompt, nullptr);
     const char *user_chars = env->GetStringUTFChars(userPrompt, nullptr);
     std::string prompt = format_prompt(sys_chars, user_chars);
@@ -461,6 +477,7 @@ Java_com_example_locall_voice_LlmBridge_nativeGenerateBenchmark(
         jint maxTokens, jint decodeThreads, jint batchThreads, jintArray affinityCores) {
     auto *session = reinterpret_cast<LlmSession *>(handle);
     if (!session) return env->NewStringUTF("0,0,0,0");
+    std::lock_guard<std::mutex> inference_lock(g_inference_mutex);
 
     jsize n_cores = env->GetArrayLength(affinityCores);
     jint *core_elems = env->GetIntArrayElements(affinityCores, nullptr);
@@ -542,6 +559,7 @@ Java_com_example_locall_voice_LlmBridge_nativeGenerateBenchmarkPaced(
         jint pauseEveryK, jint pauseMs) {
     auto *session = reinterpret_cast<LlmSession *>(handle);
     if (!session) return env->NewStringUTF("0,0,0,0,0");
+    std::lock_guard<std::mutex> inference_lock(g_inference_mutex);
 
     jsize n_cores = env->GetArrayLength(affinityCores);
     jint *core_elems = env->GetIntArrayElements(affinityCores, nullptr);
@@ -628,6 +646,7 @@ Java_com_example_locall_voice_LlmBridge_nativeGenerateBenchmarkAdaptive(
         jint checkEveryK, jint pauseMs, jlong clampThresholdKhz) {
     auto *session = reinterpret_cast<LlmSession *>(handle);
     if (!session) return env->NewStringUTF("0,0,0,0,0");
+    std::lock_guard<std::mutex> inference_lock(g_inference_mutex);
 
     jsize n_cores = env->GetArrayLength(affinityCores);
     jint *core_elems = env->GetIntArrayElements(affinityCores, nullptr);
@@ -698,6 +717,7 @@ JNIEXPORT jlong JNICALL
 Java_com_example_locall_voice_LlmBridge_nativeLoadWithCtx(
         JNIEnv *env, jobject, jstring modelPath, jint nCtx) {
     ensure_backend_init();
+    std::lock_guard<std::mutex> inference_lock(g_inference_mutex);
     const char *path = env->GetStringUTFChars(modelPath, nullptr);
     llama_model_params mparams = llama_model_default_params();
     mparams.n_gpu_layers = 0;

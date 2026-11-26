@@ -17,29 +17,34 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowForward
+import androidx.compose.material.icons.outlined.ArrowUpward
+import androidx.compose.material.icons.outlined.AttachFile
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.locall.ui.components.BrandBackground
 import com.example.locall.ui.components.FlaskIcon
 import com.example.locall.ui.components.PillTone
 import com.example.locall.ui.components.StatusPill
 import com.example.locall.ui.components.brandBrush
-import com.example.locall.ui.theme.Cyan
-import com.example.locall.ui.theme.Magenta
 import com.example.locall.ui.theme.SignalGreen
 import com.example.locall.ui.theme.SignalRed
-import com.example.locall.ui.theme.Violet
 import com.example.locall.voice.assistant.AssistantViewModel
 import com.example.locall.voice.assistant.ChatMessage
 import com.example.locall.voice.assistant.ChatRole
@@ -146,9 +151,15 @@ private fun TopBar(
         Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 12.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onOpenMenu) { Text("☰", fontSize = 22.sp) }
+        IconButton(onClick = onOpenMenu) {
+            Icon(Icons.Outlined.Menu, contentDescription = "Menu")
+        }
         Column(Modifier.weight(1f)) {
-            Text("LocaLL", style = MaterialTheme.typography.titleLarge.copy(brush = brandBrush()))
+            Text(
+                "LocaLL",
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
             Text(
                 "On-device assistant",
                 style = MaterialTheme.typography.labelSmall,
@@ -156,7 +167,11 @@ private fun TopBar(
             )
         }
         if (busy) StatusPill(text = "Working", tone = PillTone.Active, modifier = Modifier.padding(end = 4.dp))
-        if (canStartNew) IconButton(onClick = onNewConversation) { Text("✎", fontSize = 20.sp) }
+        if (canStartNew) {
+            IconButton(onClick = onNewConversation) {
+                Icon(Icons.Outlined.Edit, contentDescription = "New conversation")
+            }
+        }
         IconButton(onClick = onOpenPerfLab) { FlaskIcon(Modifier.size(22.dp)) }
     }
 }
@@ -178,6 +193,7 @@ private fun EmptyState(
         Text(
             "How can I help?",
             style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(28.dp))
@@ -187,28 +203,47 @@ private fun EmptyState(
             onStart = onStartRecording,
             onStop = onStopRecording,
         )
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(14.dp))
         Text(
             if (recording) "Listening…" else "Hold to speak",
-            style = MaterialTheme.typography.titleMedium,
-            color = if (recording) Magenta else MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.titleSmall,
+            color = if (recording) SignalRed else MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(32.dp))
         EXAMPLES.forEach { ex ->
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.surface,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                onClick = { onExample(ex) },
-            ) {
-                Text(
-                    "“$ex”",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                )
-            }
+            ExampleRow(text = ex, onClick = { onExample(ex) })
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+@Composable
+private fun ExampleRow(text: String, onClick: () -> Unit) {
+    Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick,
+    ) {
+        Row(
+            Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(12.dp))
+            Icon(
+                Icons.AutoMirrored.Outlined.ArrowForward,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
         }
     }
 }
@@ -223,23 +258,29 @@ private fun HeroMic(
     val transition = rememberInfiniteTransition(label = "hero")
     val breathe by transition.animateFloat(
         initialValue = 1f,
-        targetValue = if (recording) 1.12f else 1.05f,
+        targetValue = if (recording) 1.06f else 1f,
         animationSpec = infiniteRepeatable(
-            tween(if (recording) 700 else 2200, easing = FastOutSlowInEasing),
+            tween(if (recording) 800 else 2600, easing = FastOutSlowInEasing),
             RepeatMode.Reverse,
         ),
         label = "breathe",
     )
-    val fill: Brush = if (recording) Brush.linearGradient(listOf(SignalRed, Magenta)) else brandBrush()
+    val disabled = !enabled && !recording
     // See MicButton: key pointerInput on Unit so starting to record doesn't cancel the release handler.
     val canStart by rememberUpdatedState(enabled)
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
-            .size(168.dp)
-            .scale(breathe)
+            .size(132.dp)
+            .scale(if (recording) breathe else 1f)
             .clip(CircleShape)
-            .background(if (enabled || recording) fill else Brush.linearGradient(listOf(Color.Gray, Color.Gray)))
+            .then(
+                when {
+                    disabled -> Modifier.background(MaterialTheme.colorScheme.surfaceVariant)
+                    recording -> Modifier.background(SignalRed)
+                    else -> Modifier.background(brandBrush())
+                }
+            )
             .pointerInput(Unit) {
                 detectTapGestures(onPress = {
                     if (canStart) {
@@ -249,7 +290,14 @@ private fun HeroMic(
                     }
                 })
             },
-    ) { Text(if (recording) "●" else "🎙️", color = Color.White, fontSize = if (recording) 52.sp else 60.sp) }
+    ) {
+        Icon(
+            if (recording) Icons.Outlined.Stop else Icons.Outlined.Mic,
+            contentDescription = if (recording) "Stop" else "Hold to speak",
+            tint = if (disabled) MaterialTheme.colorScheme.onSurfaceVariant else Color.White,
+            modifier = Modifier.size(44.dp),
+        )
+    }
 }
 
 @Composable
@@ -262,7 +310,7 @@ private fun MessageBubble(
     when (msg.role) {
         ChatRole.USER -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Surface(
-                shape = RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp),
+                shape = RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp),
                 color = MaterialTheme.colorScheme.primaryContainer,
                 modifier = Modifier.widthIn(max = 320.dp),
             ) {
@@ -278,7 +326,11 @@ private fun MessageBubble(
         ChatRole.ASSISTANT -> AssistantCard(msg)
 
         ChatRole.STATUS -> Row(verticalAlignment = Alignment.CenterVertically) {
-            CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp), color = Cyan)
+            CircularProgressIndicator(
+                strokeWidth = 2.dp,
+                modifier = Modifier.size(16.dp),
+                color = MaterialTheme.colorScheme.secondary,
+            )
             Spacer(Modifier.width(10.dp))
             Text(msg.text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -295,7 +347,7 @@ private fun MessageBubble(
         ChatRole.CONFIRM -> ConfirmCard(msg, onConfirm, onCancel)
 
         ChatRole.ERROR -> Surface(
-            shape = RoundedCornerShape(14.dp),
+            shape = MaterialTheme.shapes.medium,
             color = MaterialTheme.colorScheme.errorContainer,
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -313,7 +365,7 @@ private fun MessageBubble(
 private fun AssistantCard(msg: ChatMessage) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
         Surface(
-            shape = RoundedCornerShape(18.dp, 18.dp, 18.dp, 4.dp),
+            shape = RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp),
             color = MaterialTheme.colorScheme.surface,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             modifier = Modifier.widthIn(max = 340.dp),
@@ -323,7 +375,7 @@ private fun AssistantCard(msg: ChatMessage) {
                     Text(
                         msg.capability.uppercase(),
                         style = MaterialTheme.typography.labelSmall,
-                        color = Violet,
+                        color = MaterialTheme.colorScheme.primary,
                     )
                     Spacer(Modifier.height(4.dp))
                 }
@@ -336,13 +388,17 @@ private fun AssistantCard(msg: ChatMessage) {
 @Composable
 private fun ConfirmCard(msg: ChatMessage, onConfirm: () -> Unit, onCancel: () -> Unit) {
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceVariant,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(14.dp)) {
-            Text("Confirm", style = MaterialTheme.typography.labelMedium, color = Magenta)
+            Text(
+                "Confirm",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Spacer(Modifier.height(6.dp))
             Text(msg.text, style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(12.dp))
@@ -353,11 +409,20 @@ private fun ConfirmCard(msg: ChatMessage, onConfirm: () -> Unit, onCancel: () ->
                 }
             } else {
                 val ok = msg.confirmed == true
-                Text(
-                    if (ok) "✓ Confirmed" else "✗ Cancelled",
-                    color = if (ok) SignalGreen else MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelLarge,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        if (ok) Icons.Outlined.Check else Icons.Outlined.Close,
+                        contentDescription = null,
+                        tint = if (ok) SignalGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        if (ok) "Confirmed" else "Cancelled",
+                        color = if (ok) SignalGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                }
             }
         }
     }
@@ -383,7 +448,9 @@ private fun InputBar(
             Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onAttach, enabled = enabled) { Text("＋", fontSize = 22.sp) }
+            IconButton(onClick = onAttach, enabled = enabled) {
+                Icon(Icons.Outlined.AttachFile, contentDescription = "Attach document")
+            }
             OutlinedTextField(
                 value = value,
                 onValueChange = onValueChange,
@@ -401,7 +468,12 @@ private fun InputBar(
             } else if (value.isNotBlank()) {
                 IconButton(onClick = onSend, enabled = enabled) {
                     Box(Modifier.size(44.dp).clip(CircleShape).background(brandBrush()), contentAlignment = Alignment.Center) {
-                        Text("↑", color = Color.White, fontSize = 20.sp)
+                        Icon(
+                            Icons.Outlined.ArrowUpward,
+                            contentDescription = "Send",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp),
+                        )
                     }
                 }
             } else {
@@ -415,18 +487,24 @@ private fun InputBar(
 private fun MicButton(recording: Boolean, enabled: Boolean, onStart: () -> Unit, onStop: () -> Unit) {
     val transition = rememberInfiniteTransition(label = "mic")
     val pulse by transition.animateFloat(
-        initialValue = 1f, targetValue = if (recording) 1.12f else 1f,
-        animationSpec = infiniteRepeatable(tween(700, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        initialValue = 1f, targetValue = if (recording) 1.1f else 1f,
+        animationSpec = infiniteRepeatable(tween(800, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "pulse",
     )
-    val fill: Brush = if (recording) Brush.linearGradient(listOf(SignalRed, Magenta)) else brandBrush()
+    val disabled = !enabled && !recording
     val canStart by rememberUpdatedState(enabled)
     Box(
         Modifier
             .size(48.dp)
             .scale(if (recording) pulse else 1f)
             .clip(CircleShape)
-            .background(if (enabled || recording) fill else Brush.linearGradient(listOf(Color.Gray, Color.Gray)))
+            .then(
+                when {
+                    disabled -> Modifier.background(MaterialTheme.colorScheme.surfaceVariant)
+                    recording -> Modifier.background(SignalRed)
+                    else -> Modifier.background(brandBrush())
+                }
+            )
             .pointerInput(Unit) {
                 detectTapGestures(onPress = {
                     if (canStart) {
@@ -438,17 +516,21 @@ private fun MicButton(recording: Boolean, enabled: Boolean, onStart: () -> Unit,
             },
         contentAlignment = Alignment.Center,
     ) {
-        Text(if (recording) "●" else "🎙️", color = Color.White, fontSize = if (recording) 18.sp else 20.sp)
+        Icon(
+            if (recording) Icons.Outlined.Stop else Icons.Outlined.Mic,
+            contentDescription = if (recording) "Stop" else "Hold to speak",
+            tint = if (disabled) MaterialTheme.colorScheme.onSurfaceVariant else Color.White,
+            modifier = Modifier.size(22.dp),
+        )
     }
 }
-
 
 @Composable
 private fun StopMicButton(cancelling: Boolean, onStop: () -> Unit) {
     val transition = rememberInfiniteTransition(label = "stopMic")
     val pulse by transition.animateFloat(
-        initialValue = 1f, targetValue = 1.1f,
-        animationSpec = infiniteRepeatable(tween(700, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        initialValue = 1f, targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(tween(800, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "stopPulse",
     )
     Box(
@@ -456,7 +538,7 @@ private fun StopMicButton(cancelling: Boolean, onStop: () -> Unit) {
             .size(48.dp)
             .scale(if (cancelling) 1f else pulse)
             .clip(CircleShape)
-            .background(Brush.linearGradient(listOf(SignalRed, Magenta)))
+            .background(SignalRed)
             .pointerInput(cancelling) {
                 if (cancelling) return@pointerInput
                 detectTapGestures(onTap = { onStop() })
@@ -466,7 +548,7 @@ private fun StopMicButton(cancelling: Boolean, onStop: () -> Unit) {
         if (cancelling) {
             CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(20.dp), color = Color.White)
         } else {
-            Text("🎙️", color = Color.White, fontSize = 20.sp)
+            Icon(Icons.Outlined.Stop, contentDescription = "Stop", tint = Color.White, modifier = Modifier.size(22.dp))
         }
     }
 }

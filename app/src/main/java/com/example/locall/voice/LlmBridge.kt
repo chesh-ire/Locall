@@ -1,6 +1,8 @@
 package com.example.locall.voice
 
 import android.content.Context
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 object LlmBridge {
@@ -9,12 +11,32 @@ object LlmBridge {
         System.loadLibrary("locall")
     }
 
+    // Volatile: `isLoaded` is read from arbitrary threads (warm-up on Dispatchers.Default, every
+    // feature's ensureLoaded) while the write happens under one of the locks below. Volatile makes
+    // the handle publication visible across threads without taking a lock on the fast path.
+    @Volatile
     private var handle: Long = 0L
+
+    // Guards the non-suspend load()/release() handle mutation. These are the benchmark "restore the
+    // production model" path (bench release()s the singleton, runs on its own handles, then load()s
+    // it back), which runs off the inference dispatcher — so a plain monitor, not the coroutine
+    // Mutex, is what serializes them against each other and against ensureLoaded's native load.
+    private val nativeLoadLock = Any()
+
+    // Serializes the suspend ensureLoaded() path so the fire-and-forget warm-up (AppContainer, on
+    // Dispatchers.Default) and the first user request can't both run model extraction + nativeLoad.
+    // Without it both observe isLoaded == false and each allocate a full model/context — one gets
+    // silently overwritten and leaked for the process lifetime.
+    private val loadMutex = Mutex()
 
     fun load(modelPath: String) {
         if (handle != 0L) return
-        handle = nativeLoad(modelPath)
-        require(handle != 0L) { "llama model failed to load: $modelPath" }
+        synchronized(nativeLoadLock) {
+            if (handle != 0L) return
+            val h = nativeLoad(modelPath)
+            require(h != 0L) { "llama model failed to load: $modelPath" }
+            handle = h
+        }
     }
 
     val isLoaded: Boolean get() = handle != 0L
@@ -22,9 +44,14 @@ object LlmBridge {
     suspend fun ensureLoaded(context: Context, onStatus: (String) -> Unit = {}) {
         PerfTrace.attach(context)
         if (isLoaded) return
-        LlmModelManager.ensureExtracted(context, onStatus)
-        onStatus("Loading AI model…")
-        load(LlmModelManager.modelFile(context).absolutePath)
+        loadMutex.withLock {
+            if (isLoaded) return
+            LlmModelManager.ensureExtracted(context, onStatus)
+            onStatus("Loading AI model…")
+            val path = LlmModelManager.modelFile(context).absolutePath
+            // Create the context on the same single thread that every decode runs on.
+            withContext(InferenceDispatcher.dispatcher) { load(path) }
+        }
     }
 
     val lastStats: String get() = nativeLastStats()
@@ -174,8 +201,10 @@ object LlmBridge {
     }
 
     fun release() {
-        if (handle != 0L) nativeRelease(handle)
-        handle = 0L
+        synchronized(nativeLoadLock) {
+            if (handle != 0L) nativeRelease(handle)
+            handle = 0L
+        }
     }
 
 

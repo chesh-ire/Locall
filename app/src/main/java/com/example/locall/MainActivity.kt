@@ -10,13 +10,14 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.example.locall.ui.assistant.ConversationDrawerContent
@@ -131,7 +132,9 @@ private fun PerfLabHost(onBack: () -> Unit, modifier: Modifier = Modifier) {
             Modifier.fillMaxWidth().padding(start = 4.dp, end = 12.dp, top = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onBack) { Text("←", fontSize = 22.sp) }
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
+            }
             FlaskIcon(Modifier.size(22.dp))
             Spacer(Modifier.width(10.dp))
             Text("Performance Lab", style = MaterialTheme.typography.titleMedium)

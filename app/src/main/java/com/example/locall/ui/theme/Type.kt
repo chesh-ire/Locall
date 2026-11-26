@@ -11,15 +11,15 @@ private val Default = FontFamily.Default
 val Typography = Typography(
     headlineMedium = TextStyle(
         fontFamily = Default,
-        fontWeight = FontWeight.Bold,
-        fontSize = 28.sp,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 27.sp,
         lineHeight = 34.sp,
-        letterSpacing = (-0.5).sp,
+        letterSpacing = (-0.4).sp,
     ),
     headlineSmall = TextStyle(
         fontFamily = Default,
-        fontWeight = FontWeight.Bold,
-        fontSize = 24.sp,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 23.sp,
         lineHeight = 30.sp,
         letterSpacing = (-0.3).sp,
     ),
